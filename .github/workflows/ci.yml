@@ -51,6 +51,16 @@ jobs:
       - name: e2e
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: ../ci/step.sh e2e npx playwright test
+      - name: app icon
+        id: icon
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: ../ci/step.sh icon node scripts/render-icon.mjs dist-icon/AppIcon.iconset
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() && steps.icon.outcome == 'success' }}
+        with:
+          name: app-icon
+          path: editor/dist-icon
+          retention-days: 3
       - name: publish
         if: always()
         env:
@@ -59,6 +69,7 @@ jobs:
           mkdir -p "$CI_OUT"
           if [ -d test-results ]; then cp -R test-results "$CI_OUT/test-results"; fi
           if [ -d dist ]; then du -ah dist | sort -h | tail -40 > "$CI_OUT/dist-sizes.txt"; fi
+          if [ -d dist-icon ]; then cp -R dist-icon "$CI_OUT/icon"; fi
           ../ci/publish.sh editor "${{ job.status }}"
 
   helper:
@@ -110,6 +121,10 @@ jobs:
         with:
           name: helper-darwin
           path: helper/dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: app-icon
+          path: app-icon
       - name: toolchain
         run: ci/step.sh toolchain bash -c "sw_vers; xcodebuild -version; swift --version"
       - name: swift test

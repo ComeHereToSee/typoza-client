@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Typoza 应用图标:macOS 图标网格(1024 画布、824 主体、四周留 100),蓝底白纸、纸上一个「T」与一行字 -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3B8EF0"/>
+      <stop offset="1" stop-color="#1F5FD6"/>
+    </linearGradient>
+    <linearGradient id="page" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EEF3FB"/>
+    </linearGradient>
+    <filter id="body-shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000000" flood-opacity="0.22"/>
+    </filter>
+    <filter id="page-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="20" flood-color="#0B2A6B" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)" filter="url(#body-shadow)"/>
+  <path d="M308 232 H640 L748 340 V760 A32 32 0 0 1 716 792 H308 A32 32 0 0 1 276 760 V264 A32 32 0 0 1 308 232 Z" fill="url(#page)" filter="url(#page-shadow)"/>
+  <path d="M640 232 V308 A32 32 0 0 0 672 340 H748 Z" fill="#C9D8F2"/>
+  <rect x="352" y="380" width="320" height="76" rx="16" fill="#1F5FD6"/>
+  <rect x="474" y="380" width="76" height="290" rx="16" fill="#1F5FD6"/>
+  <rect x="352" y="708" width="320" height="26" rx="13" fill="#C9D8F2"/>
+</svg>

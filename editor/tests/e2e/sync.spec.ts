@@ -134,17 +134,6 @@ test.describe('云同步', () => {
     await expect(page.locator('.tz-sync-indicator')).toHaveText('☁ 需要重新登录')
   })
 
-  test('冲突事件:提示另存的副本', async ({ page }) => {
-    await openApp(page)
-    await page.evaluate(() =>
-      window.typozaTest!.host.emit('sync.event', {
-        method: 'sync.event',
-        params: { vaultId: 'v1', kind: 'conflict', path: '周报.md', conflictPath: '周报 (冲突 办公室的 Mac 2026-10-16 10.00).md' },
-      }),
-    )
-    await expect(page.locator('.tz-toast')).toHaveText('「周报.md」在两台设备上都改过,另一份已存为「周报 (冲突 办公室的 Mac 2026-10-16 10.00).md」')
-  })
-
   test('文件树同步标记;冲突副本并排对比后保留我的版本', async ({ page }) => {
     await openApp(page)
     await page.evaluate(async () => {

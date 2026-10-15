@@ -151,3 +151,13 @@ final class ParamsTests: XCTestCase {
         }
     }
 }
+
+final class BridgeOriginTests: XCTestCase {
+    func testOnlyEditorMainFrameIsTrusted() {
+        XCTAssertTrue(BridgeOrigin.isTrusted(isMainFrame: true, scheme: "typoza", host: "app"))
+        XCTAssertFalse(BridgeOrigin.isTrusted(isMainFrame: false, scheme: "typoza", host: "app"), "同源 iframe 也不行")
+        XCTAssertFalse(BridgeOrigin.isTrusted(isMainFrame: true, scheme: "typoza", host: "local"), "本机文件(如 HTML 附件)不可信")
+        XCTAssertFalse(BridgeOrigin.isTrusted(isMainFrame: false, scheme: "https", host: "www.youtube.com"))
+        XCTAssertFalse(BridgeOrigin.isTrusted(isMainFrame: true, scheme: "https", host: "evil.example"))
+    }
+}

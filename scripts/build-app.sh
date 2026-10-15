@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # 用法:scripts/build-app.sh <输出目录>
 # 在 macOS CI 上组装 Typoza.app(通用二进制 arm64 + x86_64,ad-hoc 签名)。
-# 前置:editor/dist 已构建;helper/dist/typoza-helper-darwin-{arm64,amd64} 已交叉编译。
+# 前置:editor/dist 已构建;helper/dist/typoza-helper-darwin-{arm64,amd64} 已交叉编译;
+#       app-icon/AppIcon.iconset 已由 editor/scripts/render-icon.mjs 从 design/assets/app-icon.svg 渲染。
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 out="${1:?需要输出目录}"
@@ -9,6 +10,7 @@ version="${TYPOZA_VERSION:-0.1.0}"
 build="${TYPOZA_BUILD:-${GITHUB_RUN_NUMBER:-0}}"
 
 [ -f "$root/editor/dist/index.html" ] || { echo "缺少 editor/dist,先构建编辑器" >&2; exit 1; }
+[ -d "$root/app-icon/AppIcon.iconset" ] || { echo "缺少 app-icon/AppIcon.iconset,先渲染图标" >&2; exit 1; }
 
 cd "$root/app"
 swift build -c release --arch arm64 --arch x86_64
@@ -25,7 +27,7 @@ lipo -create \
 # CI 的 artifact 上传下载会丢掉可执行位,这里显式补上
 chmod 755 "$app/Contents/MacOS/typoza-helper"
 cp -R "$root/editor/dist" "$app/Contents/Resources/editor"
-if [ -f "$root/app/Support/AppIcon.icns" ]; then cp "$root/app/Support/AppIcon.icns" "$app/Contents/Resources/"; fi
+iconutil -c icns "$root/app-icon/AppIcon.iconset" -o "$app/Contents/Resources/AppIcon.icns"
 sed -e "s/__VERSION__/$version/" -e "s/__BUILD__/$build/" "$root/app/Support/Info.plist" > "$app/Contents/Info.plist"
 plutil -lint "$app/Contents/Info.plist"
 

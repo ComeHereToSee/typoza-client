@@ -16,6 +16,12 @@ private final class WeakBridge: NSObject, WKScriptMessageHandlerWithReply {
             replyHandler(nil, "窗口已关闭")
             return
         }
+        let origin = message.frameInfo.securityOrigin
+        guard BridgeOrigin.isTrusted(isMainFrame: message.frameInfo.isMainFrame, scheme: origin.protocol, host: origin.host) else {
+            NSLog("Typoza:拒绝来自 %@://%@ 的桥接调用", origin.protocol, origin.host)
+            replyHandler(nil, "不允许嵌入内容调用 Typoza")
+            return
+        }
         target.handle(message, reply: replyHandler)
     }
 }
