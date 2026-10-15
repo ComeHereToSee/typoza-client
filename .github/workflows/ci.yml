@@ -84,6 +84,9 @@ jobs:
           go-version: stable
           check-latest: true
           cache: false
+      - name: deps
+        # 模块代理偶发流中断(INTERNAL_ERROR),下载单独成步并重试,别让网络抖动冒充代码问题
+        run: ../ci/step.sh deps bash -c 'for i in 1 2 3; do go mod download && exit 0; sleep $((i * 5)); done; exit 1'
       - name: vet
         run: ../ci/step.sh vet go vet ./...
       - name: test
@@ -96,7 +99,7 @@ jobs:
           ../ci/step.sh build-arm64 env CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_SHA::7}" -o dist/typoza-helper-darwin-arm64 ./cmd/typoza-helper
           ../ci/step.sh build-amd64 env CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_SHA::7}" -o dist/typoza-helper-darwin-amd64 ./cmd/typoza-helper
       - uses: actions/upload-artifact@v4
-        if: steps.cross.outcome == 'success'
+        if: ${{ !cancelled() && steps.cross.outcome == 'success' }}
         with:
           name: helper-darwin
           path: helper/dist

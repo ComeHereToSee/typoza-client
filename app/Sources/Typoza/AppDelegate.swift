@@ -61,8 +61,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         mark("didFinishLaunching")
         launched = true
-        // 命令行直接传入的文件(开发调试用):typoza <路径>
-        for arg in CommandLine.arguments.dropFirst() where !arg.hasPrefix("-") && FileManager.default.fileExists(atPath: arg) {
+        // 命令行直接传入的文件(开发调试用):typoza <路径>;--smoke-out 后面的输出目录不算
+        var args = Array(CommandLine.arguments.dropFirst())
+        if let i = args.firstIndex(of: "--smoke-out") { args.removeSubrange(i ..< min(i + 2, args.count)) }
+        for arg in args where !arg.hasPrefix("-") && FileManager.default.fileExists(atPath: arg) {
             var isDir: ObjCBool = false
             FileManager.default.fileExists(atPath: arg, isDirectory: &isDir)
             pendingOpen.append((arg, isDir.boolValue))
