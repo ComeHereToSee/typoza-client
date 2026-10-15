@@ -179,3 +179,5 @@ for (const [name, p] of Object.entries(report.profiles)) {
 }
 writeFileSync(join(out, 'perf.md'), `${lines.join('\n')}\n`)
 console.log(JSON.stringify(report.phases))
+// vite preview 由 npx 拉起,kill 只结束 npx,子进程会让本进程挂住;显式退出
+process.exit(0)

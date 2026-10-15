@@ -435,3 +435,9 @@ p > .tz-image:only-child { display: block; width: fit-content; margin: 4px auto;
 .tz-emoji-src { font-size: 0; }
 .tz-emoji { font-style: normal; }
 .tz-suggest-menu .tz-menu-icon { font-size: 17px; }
+
+/* 大文档(见 plugins/large-doc.ts):屏幕外的顶层块跳过排版与绘制;auto 让块渲染过一次后记住真实高度,滚动条不跳。
+   content-visibility 在 Safari 18 起生效,旧系统忽略这条,行为与普通文档相同。 */
+.tz-editor.is-large > * { content-visibility: auto; contain-intrinsic-size: auto 2em; }
+.tz-editor.is-large > .tz-active-block { content-visibility: visible; }
+@media print { .tz-editor.is-large > * { content-visibility: visible; } }

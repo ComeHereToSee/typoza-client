@@ -11,6 +11,7 @@ import { autoPairPlugin, editingPlugin, placeholderPlugin, tocRefreshPlugin, vie
 import { emojiShortcodePlugin } from '../plugins/emoji-shortcodes'
 import { findPlugin } from '../plugins/find'
 import { blockHandlePlugin } from '../plugins/handle'
+import { largeDocPlugin } from '../plugins/large-doc'
 import { pastePlugin } from '../plugins/paste'
 import { slashPlugin } from '../plugins/slash'
 import { suggestPlugin } from '../plugins/suggest'
@@ -129,6 +130,7 @@ export function buildPlugins(env: EditorEnv): Plugin[] {
     gapCursor(),
     tableEditing(),
     placeholderPlugin(),
+    largeDocPlugin(),
     emojiShortcodePlugin(),
     editingPlugin(),
     tocRefreshPlugin(),
