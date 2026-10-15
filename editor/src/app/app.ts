@@ -226,8 +226,8 @@ export class App {
     }
   }
 
-  /** 离开当前文档前:有未保存修改时自动保存或询问。返回 false 表示用户取消。 */
-  private async confirmLeave(): Promise<boolean> {
+  /** 离开当前文档前(切换文档、关窗口、退出):有未保存修改时自动保存或询问。返回 false 表示用户取消。 */
+  async confirmLeave(): Promise<boolean> {
     if (!this.session.dirty) return true
     if (this.session.path && this.settings.autoSave) {
       await this.save()
@@ -754,6 +754,7 @@ export class App {
       void navigator.clipboard.writeText(dom.innerHTML)
     })
     cmd('block.toDocument', '转为新文档', () => void this.blockToDocument())
+    cmd('insert.image', '插入图片…', () => void this.insertLocalMedia(this.view, 'image'))
   }
 
   /** 其它模块(如云同步)往偏好设置里加的页签。 */

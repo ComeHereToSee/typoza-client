@@ -2,11 +2,18 @@ import AppKit
 import TypozaKit
 import WebKit
 
-final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithReply {
-    private let launchUptime: TimeInterval
-    private let smokeOut: URL?
-    private var window: NSWindow?
-    private var webView: WKWebView?
+/// 应用主控:窗口(一个窗口一个文档)、菜单、最近文件、退出确认。
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    let launchUptime: TimeInterval
+    let smokeOut: URL?
+    let settings = SettingsStore()
+    let history = HistoryStore()
+    private(set) var windows: [DocumentWindowController] = []
+    private var pendingOpen: [(String, Bool)] = []
+    private var launched = false
+    private var closedPaths: [String] = []
+    private let recentMenu = NSMenu(title: "打开最近使用")
+    private var appearanceObservation: NSKeyValueObservation?
 
     init(launchUptime: TimeInterval) {
         self.launchUptime = launchUptime
@@ -19,79 +26,225 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         super.init()
     }
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        guard let editorRoot = Bundle.main.resourceURL?.appendingPathComponent("editor", isDirectory: true) else {
-            fatalError("应用包缺少 Resources/editor 目录")
-        }
-        let config = WKWebViewConfiguration()
-        config.setURLSchemeHandler(TypozaSchemeHandler(appRoot: editorRoot), forURLScheme: TypozaSchemeHandler.scheme)
-        config.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "typoza")
-
-        let webView = WKWebView(frame: .zero, configuration: config)
-        if #available(macOS 13.3, *) { webView.isInspectable = true }
-        self.webView = webView
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1100, height: 760),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Typoza"
-        window.contentView = webView
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        self.window = window
-        NSApp.activate(ignoringOtherApps: true)
-
-        webView.load(URLRequest(url: TypozaSchemeHandler.appURL("index.html")))
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        recentMenu.delegate = self
+        NSApp.mainMenu = MainMenu.build(recentMenu: recentMenu, windowMenu: NSMenu(title: "窗口"), helpMenu: NSMenu(title: "帮助"))
+        NSApp.windowsMenu = NSApp.mainMenu?.item(withTitle: "窗口")?.submenu
+        NSApp.helpMenu = NSApp.mainMenu?.item(withTitle: "帮助")?.submenu
+        NSWindow.allowsAutomaticWindowTabbing = true
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        launched = true
+        // 命令行直接传入的文件(开发调试用):typoza <路径>
+        for arg in CommandLine.arguments.dropFirst() where !arg.hasPrefix("-") && FileManager.default.fileExists(atPath: arg) {
+            var isDir: ObjCBool = false
+            FileManager.default.fileExists(atPath: arg, isDirectory: &isDir)
+            pendingOpen.append((arg, isDir.boolValue))
+        }
+        if pendingOpen.isEmpty {
+            newWindow(open: nil)
+        } else {
+            for (path, isDir) in pendingOpen { open(path: path, isDir: isDir, newWindow: true) }
+        }
+        pendingOpen.removeAll()
+        appearanceObservation = NSApp.observe(\.effectiveAppearance) { [weak self] app, _ in
+            let dark = app.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            self?.windows.forEach { $0.emit("app.appearance", ["dark": dark]) }
+        }
+        NSApp.activate(ignoringOtherApps: true)
+    }
 
-    func userContentController(
-        _ userContentController: WKUserContentController,
-        didReceive message: WKScriptMessage,
-        replyHandler: @escaping (Any?, String?) -> Void
-    ) {
-        guard let body = message.body as? [String: Any], let method = body["method"] as? String else {
-            replyHandler(nil, "桥接消息格式错误:缺少 method")
+    var isDark: Bool {
+        NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    }
+
+    // Finder 双击、拖到 Dock 图标
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            var isDir: ObjCBool = false
+            FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
+            if launched { open(path: url.path, isDir: isDir.boolValue, newWindow: true) } else { pendingOpen.append((url.path, isDir.boolValue)) }
+        }
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        smokeOut == nil
+    }
+
+    // ---------- 窗口 ----------
+
+    @discardableResult
+    func newWindow(open: (String, Bool)?, asTabOf parent: NSWindow? = nil) -> DocumentWindowController {
+        let controller = DocumentWindowController(app: self, open: open, smokeOut: windows.isEmpty ? smokeOut : nil)
+        windows.append(controller)
+        if let parent, let window = controller.window {
+            parent.addTabbedWindow(window, ordered: .above)
+        }
+        controller.showWindow(nil)
+        if let path = open?.0 { noteRecent(path) }
+        return controller
+    }
+
+    func windowClosed(_ controller: DocumentWindowController) {
+        if let path = controller.currentPath { closedPaths.append(path) }
+        windows.removeAll { $0 === controller }
+    }
+
+    /// 打开文件:已在某个窗口里打开就切过去;当前窗口是空白新文档就直接用它;否则开新窗口。
+    func open(path: String, isDir: Bool, newWindow forceNew: Bool) {
+        if !isDir, let existing = windows.first(where: { $0.currentPath == path }) {
+            existing.window?.makeKeyAndOrderFront(nil)
             return
         }
-        switch method {
-        case "app.ready":
-            replyHandler(nil, nil)
-            if smokeOut != nil { runSmoke() }
+        if !forceNew, let key = keyController, key.isBlank {
+            key.load(path: path, isDir: isDir)
+            if !isDir { noteRecent(path) }
+            return
+        }
+        newWindow(open: (path, isDir), asTabOf: nil)
+    }
+
+    var keyController: DocumentWindowController? {
+        windows.first { $0.window === NSApp.keyWindow } ?? windows.last
+    }
+
+    func noteRecent(_ path: String) {
+        NSDocumentController.shared.noteNewRecentDocumentURL(URL(fileURLWithPath: path))
+    }
+
+    // ---------- 菜单 ----------
+
+    @objc func menuCommand(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        switch id {
+        case "native.newWindow":
+            newWindow(open: nil)
+        case "native.newTab":
+            newWindow(open: nil, asTabOf: NSApp.keyWindow)
+        case "native.open":
+            showOpenPanel()
+        case "native.reopenClosed":
+            if let path = closedPaths.popLast() { open(path: path, isDir: false, newWindow: true) }
+        case "native.saveAll":
+            windows.forEach { $0.sendCommand("file.save") }
+        case "native.alwaysOnTop":
+            if let window = NSApp.keyWindow {
+                window.level = window.level == .floating ? .normal : .floating
+                sender.state = window.level == .floating ? .on : .off
+            }
+        case "native.import":
+            showImportPanel()
+        case "native.welcome":
+            openWelcome()
         default:
-            replyHandler(nil, "未知桥接方法:\(method)")
+            if let key = keyController {
+                key.sendCommand(id)
+            } else {
+                newWindow(open: nil).sendCommandWhenReady(id)
+            }
         }
     }
 
-    // 冒烟模式:编辑器就绪后跑页面内自检,写出 smoke.json 与窗口截图后退出。供 CI 验证打包产物真的能跑。
-    private func runSmoke() {
-        guard let out = smokeOut, let webView else { return }
-        let readySeconds = ProcessInfo.processInfo.systemUptime - launchUptime
-        webView.callAsyncJavaScript("return await window.typoza.smoke()", arguments: [:], in: nil, in: .page) { result in
-            var report: [String: Any] = ["readySeconds": readySeconds]
-            switch result {
-            case .success(let value): report["result"] = value
-            case .failure(let error): report["error"] = "页面自检失败:\(error)"
+    private func showOpenPanel() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.message = "选择 Markdown 文件或文件夹"
+        guard panel.runModal() == .OK else { return }
+        for url in panel.urls {
+            var isDir: ObjCBool = false
+            FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
+            open(path: url.path, isDir: isDir.boolValue, newWindow: false)
+        }
+    }
+
+    /// 导入(Typora):用 Pandoc 把 Word / HTML / EPUB 等转成 Markdown,存在原文件旁边后打开。
+    private func showImportPanel() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.message = "选择要导入的文件(需要已安装 Pandoc)"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let pandoc = try ExportService.locatePandoc(configured: (try? settings.load())?["pandocPath"] as? String)
+            var target = url.deletingPathExtension().appendingPathExtension("md")
+            var i = 1
+            while FileManager.default.fileExists(atPath: target.path) {
+                target = url.deletingPathExtension().deletingLastPathComponent().appendingPathComponent("\(url.deletingPathExtension().lastPathComponent)-\(i).md")
+                i += 1
             }
-            webView.takeSnapshot(with: nil) { image, error in
-                do {
-                    try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
-                    if let image {
-                        try SmokeReport.writePNG(image, to: out.appendingPathComponent("smoke.png"))
-                    } else {
-                        report["snapshotError"] = "截图失败:\(String(describing: error))"
-                    }
-                    try SmokeReport.writeJSON(report, to: out.appendingPathComponent("smoke.json"))
-                } catch {
-                    FileHandle.standardError.write("写冒烟报告失败:\(error)\n".data(using: .utf8)!)
-                    exit(2)
-                }
-                NSApp.terminate(nil)
+            try ExportService.runPandoc(pandoc, arguments: [url.path, "-t", "gfm", "--wrap=none", "--extract-media=\(url.deletingLastPathComponent().appendingPathComponent("assets").path)", "-o", target.path], input: nil, workingDirectory: url.deletingLastPathComponent())
+            open(path: target.path, isDir: false, newWindow: true)
+        } catch {
+            NSAlert(error: error).runModal()
+        }
+    }
+
+    private func openWelcome() {
+        guard let url = Bundle.main.resourceURL?.appendingPathComponent("editor/welcome.md"), FileManager.default.fileExists(atPath: url.path) else { return }
+        let dir = AppPaths.support.appendingPathComponent("welcome", isDirectory: true)
+        let target = dir.appendingPathComponent("快速上手.md")
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            if !FileManager.default.fileExists(atPath: target.path) { try FileManager.default.copyItem(at: url, to: target) }
+            open(path: target.path, isDir: false, newWindow: true)
+        } catch {
+            NSAlert(error: error).runModal()
+        }
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu === recentMenu else { return }
+        menu.removeAllItems()
+        for url in NSDocumentController.shared.recentDocumentURLs {
+            let item = NSMenuItem(title: url.lastPathComponent, action: #selector(openRecent(_:)), keyEquivalent: "")
+            item.representedObject = url.path
+            item.toolTip = url.path
+            item.target = self
+            menu.addItem(item)
+        }
+        if menu.items.isEmpty {
+            menu.addItem(NSMenuItem(title: "无", action: nil, keyEquivalent: ""))
+        }
+        menu.addItem(.separator())
+        let clear = NSMenuItem(title: "清除菜单", action: #selector(clearRecent(_:)), keyEquivalent: "")
+        clear.target = self
+        menu.addItem(clear)
+    }
+
+    @objc private func openRecent(_ sender: NSMenuItem) {
+        guard let path = sender.representedObject as? String else { return }
+        open(path: path, isDir: false, newWindow: false)
+    }
+
+    @objc private func clearRecent(_ sender: NSMenuItem) {
+        NSDocumentController.shared.clearRecentDocuments(nil)
+    }
+
+    // ---------- 退出:逐个窗口确认未保存的修改 ----------
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let edited = windows.filter { $0.window?.isDocumentEdited == true }
+        if edited.isEmpty || smokeOut != nil { return .terminateNow }
+        confirmSequentially(edited) { ok in
+            NSApp.reply(toApplicationShouldTerminate: ok)
+        }
+        return .terminateLater
+    }
+
+    private func confirmSequentially(_ list: [DocumentWindowController], completion: @escaping (Bool) -> Void) {
+        guard let first = list.first else {
+            completion(true)
+            return
+        }
+        first.window?.makeKeyAndOrderFront(nil)
+        first.prepareClose { ok in
+            if !ok {
+                completion(false)
+                return
             }
+            self.confirmSequentially(Array(list.dropFirst()), completion: completion)
         }
     }
 }
