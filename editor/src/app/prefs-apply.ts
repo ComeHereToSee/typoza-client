@@ -36,6 +36,12 @@ export function editorSettingsFrom(s: AppSettings): EditorSettings {
     codeLineWrap: s.codeLineWrap,
     spellcheck: s.spellcheck,
     keybindings: editorKeybindings(s.keybindings),
+    codeIndentWidth: s.codeIndentWidth,
+    mathCodeFence: s.mathCodeFence,
+    mathAutoNumber: s.mathNumbering,
+    mathPhysics: s.mathPhysics,
+    mathLineBreak: s.mathLineBreak,
+    diagrams: s.diagrams,
   }
 }
 
@@ -53,13 +59,15 @@ const REBUILD_KEYS: Key[] = [
   'codeLineNumbers',
   'codeLineWrap',
   'showMarkdownMarkers',
+  // 代码块 Tab 缩进宽度是建插件时读的
+  'codeIndentWidth',
 ]
 // 改了识别规则要按新规则重新解析当前文档(文件内容不变)
 const REPARSE_KEYS: Key[] = ['inlineMath', 'subscript', 'superscript', 'highlight', 'alerts', 'autolink', 'strictMode', 'unicodePunctuation']
 // 空格与换行:只影响显示,交给显示插件
 const DISPLAY_KEYS: Key[] = ['firstLineIndent', 'showBrTag', 'preserveSingleNewline']
 // 改了图表、公式选项要重画节点视图
-const REDRAW_KEYS: Key[] = ['diagrams', 'mathNumbering', 'mathPhysics']
+const REDRAW_KEYS: Key[] = ['diagrams', 'mathNumbering', 'mathPhysics', 'mathLineBreak', 'mathCodeFence', 'codeIndentWidth']
 
 export interface LiveEditor {
   view: EditorView

@@ -4,8 +4,9 @@ import { baseKeymap, chainCommands, createParagraphNear, lift, liftEmptyBlock, n
 import { undoInputRule } from 'prosemirror-inputrules'
 import { keymap } from 'prosemirror-keymap'
 import { splitListItem } from 'prosemirror-schema-list'
-import { type Command, type EditorState, NodeSelection, type Plugin, Selection, TextSelection } from 'prosemirror-state'
+import { type Command, type EditorState, type Plugin, Selection, TextSelection } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
+import { isBlockSelected } from './block-selection'
 import { findAncestor } from './commands'
 import { runCommand } from './registry'
 import { schema } from './schema'
@@ -92,11 +93,15 @@ export const DEFAULT_KEYS: Record<string, string> = {
   'Mod-y': 'edit.redo',
 }
 
-/** 块选中态(Esc 之后)专用的键,先于默认键匹配。 */
+/** 块选中态(Esc 之后,一块或多块)专用的键,先于默认键匹配。 */
 const BLOCK_SELECTED_KEYS: Record<string, string> = {
   ArrowUp: 'block.selectPrev',
   ArrowDown: 'block.selectNext',
+  'Shift-ArrowUp': 'block.extendUp',
+  'Shift-ArrowDown': 'block.extendDown',
   Enter: 'block.editSelected',
+  Backspace: 'block.delete',
+  Delete: 'block.delete',
 }
 
 // ---------- Enter ----------
@@ -115,7 +120,8 @@ const enterShortcuts: Command = (state, dispatch) => {
     dispatch(tr.scrollIntoView())
     return true
   }
-  const fence = /^```([\w+#.-]*)$/.exec(text)
+  // ``` 与 ~~~ 同效(notion-input.md 2.1 第 14 行)
+  const fence = /^(?:```|~~~)([\w+#.-]*)$/.exec(text)
   if (fence) return replace(n.code_block.create({ language: fence[1] }), 1)
   if (text === '$$') return replace(n.math_block.create(), 1)
   if (/^\[toc\]$/i.test(text)) {
@@ -237,8 +243,7 @@ export function buildKeymaps(customKeys: Record<string, string> = {}): Plugin[] 
   }
   const blockSelected: Record<string, Command> = {}
   for (const [key, id] of Object.entries(BLOCK_SELECTED_KEYS)) {
-    blockSelected[key] = (state: EditorState, _dispatch, view?: EditorView) =>
-      state.selection instanceof NodeSelection && state.selection.node.isBlock && view ? runCommand(view, id) : false
+    blockSelected[key] = (state: EditorState, _dispatch, view?: EditorView) => (isBlockSelected(state.selection) && view ? runCommand(view, id) : false)
   }
   return [
     keymap(blockSelected),

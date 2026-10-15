@@ -1,20 +1,54 @@
 // 代码块:在 ProseMirror 里嵌 CodeMirror 6(按 prosemirror.net 官方「嵌入代码编辑器」示例的同步方式)。
-// 语言按需加载;mermaid 等图表语言在代码下方渲染预览,光标不在块内时只显示图表(Typora 行为)。
-import { defaultKeymap, indentWithTab } from '@codemirror/commands'
-import { LanguageDescription, bracketMatching, indentOnInput, syntaxHighlighting } from '@codemirror/language'
+// 语言按需加载;mermaid / sequence / flow 图表与 ```math 公式在代码下方渲染预览,光标不在块内时只显示渲染结果(Typora 行为)。
+// 缩进宽度按偏好(PM-18);「调整缩进」命令按语言规则重排所选行或整个代码块(P-24)。
+import { defaultKeymap, indentSelection, indentWithTab } from '@codemirror/commands'
+import { LanguageDescription, bracketMatching, indentOnInput, indentUnit, syntaxHighlighting } from '@codemirror/language'
 import { languages } from '@codemirror/language-data'
 import { Compartment, EditorState as CMState } from '@codemirror/state'
 import { EditorView as CMView, type KeyBinding, type ViewUpdate, drawSelection, keymap as cmKeymap, lineNumbers } from '@codemirror/view'
 import { classHighlighter } from '@lezer/highlight'
-import { exitCode, setBlockType } from 'prosemirror-commands'
+import { chainCommands, exitCode, setBlockType } from 'prosemirror-commands'
 import { redo, undo } from 'prosemirror-history'
+import { undoInputRule } from 'prosemirror-inputrules'
 import type { Node as PMNode } from 'prosemirror-model'
 import { type Command, Selection, TextSelection } from 'prosemirror-state'
 import type { EditorView, NodeView } from 'prosemirror-view'
-import type { EditorEnv } from '../core/env'
+import { EDITOR_OPTION_DEFAULTS, type EditorEnv } from '../core/env'
+import { registerCommand } from '../core/registry'
 import { schema } from '../core/schema'
 import { ICONS, h, svgIcon } from '../ui/dom'
 import { renderDiagram, isDiagramLanguage } from './diagram'
+import { renderTex, trackMath, untrackMath } from './katex'
+import { mathFenceEnabled, mathOptions } from './math'
+
+/** 渲染预览的类型:图表、公式;偏好关掉时按普通代码显示。 */
+function previewKind(language: string, env: EditorEnv): 'diagram' | 'math' | null {
+  const name = language.toLowerCase()
+  if (name === 'math') return mathFenceEnabled(env) ? 'math' : null
+  if (isDiagramLanguage(name)) return (env.settings.diagrams ?? EDITOR_OPTION_DEFAULTS.diagrams) ? 'diagram' : null
+  return null
+}
+
+function indentExtensions(env: EditorEnv) {
+  const width = env.settings.codeIndentWidth ?? EDITOR_OPTION_DEFAULTS.codeIndentWidth
+  return [indentUnit.of(' '.repeat(width)), CMState.tabSize.of(width)]
+}
+
+/** 正在显示的代码块(「调整缩进」命令找光标所在的那一个)。 */
+const codeViews = new Set<CodeBlockView>()
+
+function activeCodeView(view: EditorView): CodeBlockView | undefined {
+  return [...codeViews].find((v) => v.owns(view))
+}
+
+/** 偏好变化后让已显示的代码块按新设置重新配置(行号、换行、缩进宽度、预览开关)。 */
+export function refreshCodeBlocks(): void {
+  for (const v of codeViews) v.reconfigure()
+}
+
+/** 为选中内容 / 整个代码块调整缩进(对照表 P-24)。 */
+registerCommand({ id: 'code.indentSelection', label: '为选中内容调整缩进', run: (view) => activeCodeView(view)?.reindent(false) ?? false })
+registerCommand({ id: 'code.indentBlock', label: '为整个代码块调整缩进', run: (view) => activeCodeView(view)?.reindent(true) ?? false })
 
 const ALIASES: Record<string, string> = {
   js: 'javascript',
@@ -45,10 +79,13 @@ export class CodeBlockView implements NodeView {
   private readonly language = new Compartment()
   private readonly gutter = new Compartment()
   private readonly wrap = new Compartment()
+  private readonly indent = new Compartment()
   private readonly langInput: HTMLInputElement
   private readonly preview: HTMLDivElement
   private loadedLanguage = ''
   private renderTimer = 0
+  /** 当前的渲染预览类型(图表 / 公式),没有为 null */
+  private previewing: 'diagram' | 'math' | null = null
 
   constructor(
     private node: PMNode,
@@ -66,6 +103,7 @@ export class CodeBlockView implements NodeView {
           bracketMatching(),
           syntaxHighlighting(classHighlighter),
           this.language.of([]),
+          this.indent.of(indentExtensions(env)),
           this.gutter.of(env.settings.codeLineNumbers ? lineNumbers() : []),
           this.wrap.of(env.settings.codeLineWrap ? CMView.lineWrapping : []),
           CMView.updateListener.of((update) => this.forwardUpdate(update)),
@@ -115,7 +153,36 @@ export class CodeBlockView implements NodeView {
     })
     this.dom = h('div', { class: 'tz-code-block' }, header, this.cm.dom, this.preview)
     ensureLanguageList()
+    codeViews.add(this)
+    trackMath(this)
     this.applyLanguage()
+  }
+
+  /** 光标(ProseMirror 选区或 CodeMirror 焦点)在这个代码块里。 */
+  owns(view: EditorView): boolean {
+    if (view !== this.view) return false
+    if (this.cm.hasFocus) return true
+    const pos = this.getPos()
+    const { from, to } = view.state.selection
+    return pos !== undefined && from > pos && to < pos + this.node.nodeSize
+  }
+
+  /** 按语言的缩进规则重排所选行(whole 为整个代码块)。 */
+  reindent(whole: boolean): boolean {
+    const cm = this.cm
+    // 改动经 CodeMirror 的更新回调同步回文档,回调只在 CodeMirror 有焦点时转发
+    cm.focus()
+    if (!whole) return indentSelection(cm)
+    const head = cm.state.selection.main.head
+    cm.dispatch({ selection: { anchor: 0, head: cm.state.doc.length } })
+    const ok = indentSelection(cm)
+    cm.dispatch({ selection: { anchor: Math.min(head, cm.state.doc.length) } })
+    return ok
+  }
+
+  /** 「刷新所有数学公式」:```math 预览重新渲染。 */
+  refresh(): void {
+    if (this.previewing === 'math') this.schedulePreview()
   }
 
   private setLanguageAttr(language: string): void {
@@ -127,10 +194,10 @@ export class CodeBlockView implements NodeView {
   private applyLanguage(): void {
     const name = this.node.attrs.language ?? ''
     this.dom.dataset.language = name
-    const diagram = isDiagramLanguage(name)
-    this.dom.classList.toggle('is-diagram', diagram)
-    this.preview.hidden = !diagram
-    if (diagram) this.scheduleDiagram()
+    this.previewing = previewKind(name, this.env)
+    this.dom.classList.toggle('is-diagram', this.previewing !== null)
+    this.preview.hidden = this.previewing === null
+    if (this.previewing) this.schedulePreview()
     if (name === this.loadedLanguage) return
     this.loadedLanguage = name
     const desc = findLanguage(name)
@@ -143,10 +210,17 @@ export class CodeBlockView implements NodeView {
     })
   }
 
-  private scheduleDiagram(): void {
+  private schedulePreview(): void {
     clearTimeout(this.renderTimer)
     this.renderTimer = window.setTimeout(() => {
-      void renderDiagram(this.node.attrs.language, this.node.textContent, this.preview)
+      const code = this.node.textContent
+      if (this.previewing === 'math') {
+        this.preview.classList.toggle('is-empty', !code.trim())
+        if (!code.trim()) this.preview.textContent = '空公式'
+        else void renderTex(code, this.preview, true, mathOptions(this.env, this.view.state.doc))
+      } else if (this.previewing === 'diagram') {
+        void renderDiagram(this.node.attrs.language, code, this.preview)
+      }
     }, 250)
   }
 
@@ -206,7 +280,8 @@ export class CodeBlockView implements NodeView {
           return ok
         },
       },
-      { key: 'Mod-z', run: pm(undo) },
+      // 自动转换(如「```js 空格」)后立即 ⌘Z 撤回为原字符(PRD 3.3「撤回」)
+      { key: 'Mod-z', run: pm(chainCommands(undoInputRule, undo)) },
       { key: 'Mod-Shift-z', run: pm(redo) },
       { key: 'Mod-y', run: pm(redo) },
     ]
@@ -251,18 +326,21 @@ export class CodeBlockView implements NodeView {
       this.cm.dispatch({ changes: { from: start, to: curEnd, insert: next.slice(start, nextEnd) } })
       this.updating = false
     }
-    if (isDiagramLanguage(node.attrs.language)) this.scheduleDiagram()
+    if (this.previewing) this.schedulePreview()
     return true
   }
 
-  /** 设置变化(行号、自动换行)时由编辑器调用。 */
+  /** 设置变化(行号、自动换行、缩进宽度)时由编辑器调用。 */
   reconfigure(): void {
     this.cm.dispatch({
       effects: [
         this.gutter.reconfigure(this.env.settings.codeLineNumbers ? lineNumbers() : []),
         this.wrap.reconfigure(this.env.settings.codeLineWrap ? CMView.lineWrapping : []),
+        this.indent.reconfigure(indentExtensions(this.env)),
       ],
     })
+    // 图表 / 公式预览开关也可能变了
+    this.applyLanguage()
   }
 
   selectNode(): void {
@@ -279,6 +357,8 @@ export class CodeBlockView implements NodeView {
 
   destroy(): void {
     clearTimeout(this.renderTimer)
+    codeViews.delete(this)
+    untrackMath(this)
     this.cm.destroy()
   }
 }
@@ -287,7 +367,7 @@ export class CodeBlockView implements NodeView {
 function ensureLanguageList(): void {
   if (document.getElementById('tz-code-languages')) return
   const list = h('datalist', { id: 'tz-code-languages' })
-  const names = new Set<string>(['mermaid', 'math'])
+  const names = new Set<string>(['mermaid', 'sequence', 'flow', 'math'])
   for (const l of languages) names.add(l.name.toLowerCase())
   for (const name of [...names].sort()) list.append(h('option', { value: name }))
   document.body.append(list)

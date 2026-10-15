@@ -7,6 +7,7 @@ import { bundleOf, displayName, isOpenable, isTextBundle } from '../core/filetyp
 import { basename, dirname, joinPath } from '../core/paths'
 import type { FileStat, Host, SearchHit } from '../host/types'
 import { buildPattern, type FindOptions } from '../plugins/find'
+import { BLOCK_DRAG_TYPE, moveDraggedBlocks } from '../plugins/handle'
 import { DRAG_PATH_TYPE } from '../plugins/linkcard'
 import { h } from '../ui/dom'
 import { FloatingMenu, type MenuItem } from '../ui/menu'
@@ -370,6 +371,7 @@ export class Sidebar {
         ev.dataTransfer.effectAllowed = 'copyMove'
       })
       if (folder) this.dropTarget(row, e.path)
+      else if (/\.(md|markdown)$/i.test(e.path)) this.blockDropTarget(row, e.path)
       into.append(row)
       if (folder && this.expanded.has(e.path)) await this.renderDir(e.path, into, depth + 1)
     }
@@ -399,6 +401,23 @@ export class Sidebar {
         e.preventDefault()
         void this.copyIn(Array.from(dt.files), dir)
       }
+    })
+  }
+
+  /** 从正文拖来的块(块手柄拖动)落到文档上:追加到该文档末尾并从当前文档移走(notion-input.md 7.3)。 */
+  private blockDropTarget(el: HTMLElement, path: string): void {
+    el.addEventListener('dragover', (e) => {
+      if (!e.dataTransfer?.types.includes(BLOCK_DRAG_TYPE)) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      el.classList.add('is-drop-target')
+    })
+    el.addEventListener('dragleave', () => el.classList.remove('is-drop-target'))
+    el.addEventListener('drop', (e) => {
+      el.classList.remove('is-drop-target')
+      if (!e.dataTransfer?.types.includes(BLOCK_DRAG_TYPE)) return
+      e.preventDefault()
+      moveDraggedBlocks(path).catch((err: unknown) => this.cb.onError(`移动块失败:${errText(err)}`))
     })
   }
 

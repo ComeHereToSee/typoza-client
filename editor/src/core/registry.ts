@@ -1,9 +1,11 @@
 // 命令注册表:命令 ID → 实现。快捷键、斜杠菜单、块菜单、原生菜单栏都按 ID 调用,
 // 用户自定义快捷键也只改「键 → ID」的映射,不碰实现。
-import { setBlockType } from 'prosemirror-commands'
+import { chainCommands, setBlockType } from 'prosemirror-commands'
 import { undoInputRule } from 'prosemirror-inputrules'
 import { Selection } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
+import { pickTableSize } from '../ui/table-size'
+import { isBlockSelected } from './block-selection'
 import {
   clearFormatting,
   deleteBlock,
@@ -14,6 +16,7 @@ import {
   insertDivider,
   insertFootnote,
   insertFrontMatter,
+  insertHtmlBlock,
   insertInlineMath,
   insertMathBlock,
   insertTable,
@@ -30,10 +33,11 @@ import {
   toggleAllFolds,
   toggleCheckOrFold,
   toggleFormat,
-  turnInto,
+  turnSelectedInto,
+  type BlockKind,
   undo,
 } from './commands'
-import { schema } from './schema'
+import { CALLOUT_KINDS, schema } from './schema'
 import {
   applyLastColor,
   deleteFormatted,
@@ -41,6 +45,7 @@ import {
   deleteWord,
   editSelectedBlock,
   escapeSelect,
+  extendBlock,
   jumpToSelection,
   modifyCurrentBlock,
   selectFormatted,
@@ -48,7 +53,6 @@ import {
   selectSiblingBlock,
   selectWord,
 } from './selection-commands'
-import { NodeSelection } from 'prosemirror-state'
 
 export type CommandRun = (view: EditorView) => boolean
 
@@ -83,8 +87,22 @@ export function runCommand(view: EditorView, id: string): boolean {
 const m = schema.marks
 const st = (cmd: (s: EditorView['state'], d?: EditorView['dispatch']) => boolean): CommandRun => (view) => cmd(view.state, view.dispatch)
 
+/** 标注块五种类型的中文名(notion-input.md 7.5)。 */
+export const CALLOUT_LABELS: Record<string, string> = { note: '提醒', tip: '建议', important: '重要', warning: '警告', caution: '注意' }
+
+/** ⌥⇧⌘T:弹窗选行列后插入表格(PRD 3.6;行数含表头行)。 */
+function insertTableWithDialog(view: EditorView): boolean {
+  const c = view.coordsAtPos(view.state.selection.from)
+  void pickTableSize({ title: '插入表格', initial: { rows: 3, cols: 3 }, anchor: c }).then((size) => {
+    view.focus()
+    if (size) insertTable(size.rows, size.cols)(view.state, view.dispatch)
+  })
+  return true
+}
+
 const builtins: CommandDef[] = [
-  { id: 'edit.undo', label: '撤销', run: st(undo) },
+  // 自动转换后立即 ⌘Z:先撤回为输入的原字符(PRD 3.3「撤回」),否则正常撤销
+  { id: 'edit.undo', label: '撤销', run: st(chainCommands(undoInputRule, undo)) },
   { id: 'edit.redo', label: '重做', run: st(redo) },
   { id: 'edit.undoInputRule', label: '撤销自动格式', run: st(undoInputRule) },
   { id: 'edit.selectAll', label: '全选', run: st(progressiveSelectAll) },
@@ -101,32 +119,41 @@ const builtins: CommandDef[] = [
   { id: 'format.unlink', label: '移除链接', run: st(removeLink) },
   { id: 'format.clear', label: '清除样式', run: st(clearFormatting) },
 
-  { id: 'block.paragraph', label: '正文', run: (v) => turnInto(v, 'paragraph') },
+  // 块类型命令作用于光标所在块,或块选中态下的一块 / 多块
+  { id: 'block.paragraph', label: '正文', run: (v) => turnSelectedInto(v, 'paragraph') },
   ...[1, 2, 3, 4, 5, 6].map((level) => ({
     id: `block.h${level}`,
-    label: `${level} 级标题`,
+    label: `标题 ${level}`,
     run: st(setHeading(level)),
   })),
   { id: 'block.headingUp', label: '提升标题级别', run: st(shiftHeading(1)) },
   { id: 'block.headingDown', label: '降低标题级别', run: st(shiftHeading(-1)) },
-  { id: 'block.bullet', label: '无序列表', run: (v) => turnInto(v, 'bullet') },
-  { id: 'block.numbered', label: '有序列表', run: (v) => turnInto(v, 'numbered') },
-  { id: 'block.todo', label: '待办列表', run: (v) => turnInto(v, 'todo') },
-  { id: 'block.toggle', label: '折叠列表', run: (v) => turnInto(v, 'toggle') },
-  { id: 'block.quote', label: '引用', run: (v) => turnInto(v, 'quote') },
-  { id: 'block.callout', label: '标注', run: (v) => turnInto(v, 'callout') },
-  { id: 'block.code', label: '代码块', run: (v) => turnInto(v, 'code') },
-  { id: 'block.math', label: '公式块', run: (v) => turnInto(v, 'math') },
+  { id: 'block.bullet', label: '无序列表', run: (v) => turnSelectedInto(v, 'bullet') },
+  { id: 'block.numbered', label: '有序列表', run: (v) => turnSelectedInto(v, 'numbered') },
+  { id: 'block.todo', label: '待办', run: (v) => turnSelectedInto(v, 'todo') },
+  { id: 'block.toggle', label: '折叠块', run: (v) => turnSelectedInto(v, 'toggle') },
+  ...[1, 2, 3].map((level) => ({
+    id: `block.toggleH${level}`,
+    label: `折叠标题 ${level}`,
+    run: (v: EditorView) => turnSelectedInto(v, `toggleh${level}` as BlockKind),
+  })),
+  { id: 'block.quote', label: '引用', run: (v) => turnSelectedInto(v, 'quote') },
+  { id: 'block.callout', label: '标注块', run: (v) => turnSelectedInto(v, 'callout') },
+  { id: 'block.code', label: '代码块', run: (v) => turnSelectedInto(v, 'code') },
+  { id: 'block.math', label: '公式块', run: (v) => turnSelectedInto(v, 'math') },
 
-  { id: 'insert.table', label: '表格', run: st(insertTable(3, 3)) },
+  { id: 'insert.table', label: '插入表格', run: insertTableWithDialog },
   { id: 'insert.divider', label: '分割线', run: st(insertDivider) },
   { id: 'insert.toc', label: '目录', run: st(insertToc) },
   { id: 'insert.footnote', label: '脚注', run: st(insertFootnote) },
-  { id: 'insert.frontMatter', label: 'YAML Front Matter', run: st(insertFrontMatter) },
+  { id: 'insert.frontMatter', label: 'YAML 元数据', run: st(insertFrontMatter) },
   { id: 'insert.codeBlock', label: '代码块', run: st(insertCodeBlock()) },
   { id: 'insert.mathBlock', label: '公式块', run: st(insertMathBlock) },
-  { id: 'insert.callout', label: '标注块', run: st(insertCallout('tip')) },
+  { id: 'insert.callout', label: '标注块', run: st(insertCallout('note')) },
+  ...CALLOUT_KINDS.map((kind) => ({ id: `insert.callout.${kind}`, label: `${CALLOUT_LABELS[kind]}内容`, run: st(insertCallout(kind)) })),
   { id: 'insert.toggle', label: '折叠块', run: st(insertToggle) },
+  { id: 'insert.diagram', label: '图表', run: st(insertCodeBlock('mermaid')) },
+  { id: 'insert.html', label: 'HTML', run: st(insertHtmlBlock) },
 
   { id: 'block.select', label: '选中块', run: st(selectCurrentBlock) },
   { id: 'block.duplicate', label: '复制块', run: st(duplicateBlock) },
@@ -175,18 +202,20 @@ const builtins: CommandDef[] = [
   { id: 'block.escape', label: '选中块 / 退出块选中', run: st(escapeSelect) },
   { id: 'block.selectPrev', label: '选中上一块', run: st(selectSiblingBlock(-1)) },
   { id: 'block.selectNext', label: '选中下一块', run: st(selectSiblingBlock(1)) },
+  { id: 'block.extendUp', label: '向上扩选块', run: st(extendBlock(-1)) },
+  { id: 'block.extendDown', label: '向下扩选块', run: st(extendBlock(1)) },
   { id: 'block.editSelected', label: '编辑所选块', run: st(editSelectedBlock) },
   { id: 'block.modify', label: '修改当前块', run: st(modifyCurrentBlock) },
   {
     // 块选中态才移动(文字编辑态保留 macOS 默认的扩选到文首 / 文末)
     id: 'block.moveUpSelected',
     label: '上移所选块',
-    run: (view) => view.state.selection instanceof NodeSelection && moveBlock(-1)(view.state, view.dispatch),
+    run: (view) => isBlockSelected(view.state.selection) && moveBlock(-1)(view.state, view.dispatch),
   },
   {
     id: 'block.moveDownSelected',
     label: '下移所选块',
-    run: (view) => view.state.selection instanceof NodeSelection && moveBlock(1)(view.state, view.dispatch),
+    run: (view) => isBlockSelected(view.state.selection) && moveBlock(1)(view.state, view.dispatch),
   },
   {
     id: 'insert.comment',

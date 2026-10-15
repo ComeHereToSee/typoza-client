@@ -4,8 +4,6 @@
 import { joinPath } from '../core/paths'
 import type { Host } from '../host/types'
 import { isLightboxOpen } from '../ui/lightbox'
-import { setMathOptions } from '../views/katex'
-import { setDiagramsEnabled } from '../views/diagram'
 import { type AppSettings, BUILTIN_THEMES, themesFolder } from './settings'
 
 export const MIN_ZOOM = 0.5
@@ -35,7 +33,7 @@ export function isBuiltinTheme(id: string): boolean {
   return BUILTIN_THEMES.some((t) => t.id === id)
 }
 
-/** 把设置落到页面根节点上(主题、深浅色、字体、字号、宽度、缩放、公式编号),并按需加载自定义主题样式。 */
+/** 把设置落到页面根节点上(主题、深浅色、字体、字号、宽度、缩放),并按需加载自定义主题样式。 */
 export function applyAppearance(host: Host, s: AppSettings, systemDark: boolean, onError: (message: string) => void): void {
   const root = document.documentElement
   const theme = effectiveTheme(s, systemDark)
@@ -43,13 +41,10 @@ export function applyAppearance(host: Host, s: AppSettings, systemDark: boolean,
   root.dataset.theme = theme
   root.dataset.font = s.fontFamily
   root.dataset.width = s.pageWidth
-  root.dataset.mathNumbering = s.mathNumbering
   // 「使用主题的字体大小」时不写行内变量,让主题(内置主题或用户 CSS)自己的字号生效
   if (s.fontSizeMode === 'custom') root.style.setProperty('--tz-font-size', `${s.fontSize}px`)
   else root.style.removeProperty('--tz-font-size')
   root.style.setProperty('--tz-zoom', String(s.zoom))
-  setDiagramsEnabled(s.diagrams)
-  setMathOptions({ numbering: s.mathNumbering, physics: s.mathPhysics })
   void loadThemeCss(host, theme, false).catch((err: unknown) => onError(err instanceof Error ? err.message : String(err)))
 }
 

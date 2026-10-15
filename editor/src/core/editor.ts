@@ -9,6 +9,7 @@ import { tableEditing } from 'prosemirror-tables'
 import { EditorView } from 'prosemirror-view'
 import { autoPairPlugin, editingPlugin, placeholderPlugin, tocRefreshPlugin, viewModesPlugin } from '../plugins/basics'
 import { copyLinePlugin, markdownPairsPlugin } from '../plugins/editing-prefs'
+import { blockSelectionPlugin } from '../plugins/blockselect'
 import { emojiShortcodePlugin } from '../plugins/emoji-shortcodes'
 import { findPlugin } from '../plugins/find'
 import { blockHandlePlugin } from '../plugins/handle'
@@ -34,7 +35,7 @@ import {
 } from '../views/blocks'
 import { CodeBlockView, codeBlockArrowHandler } from '../views/codeblock'
 import { ImageView } from '../views/image'
-import { MathBlockView, MathInlineView } from '../views/math'
+import { MathBlockView, MathInlineView, mathPlugin } from '../views/math'
 import { MediaView } from '../views/media'
 import { isUiOnly, markRange } from './commands'
 import { type EditorEnv, openImageLightbox } from './env'
@@ -120,6 +121,8 @@ function tableKeys(): Record<string, Command> {
 
 export function buildPlugins(env: EditorEnv): Plugin[] {
   return [
+    // 块选中态的输入拦截、粘贴到下方要先于斜杠、表情与粘贴插件
+    blockSelectionPlugin(env),
     slashPlugin(env),
     suggestPlugin(env),
     pastePlugin(env),
@@ -148,8 +151,9 @@ export function buildPlugins(env: EditorEnv): Plugin[] {
     smartPunctuationRenderPlugin(env),
     tocRefreshPlugin(),
     viewModesPlugin(),
-    blockHandlePlugin(),
+    blockHandlePlugin(env),
     tableToolbarPlugin(),
+    mathPlugin(env),
   ]
 }
 
@@ -170,8 +174,8 @@ export function createEditorView(mount: HTMLElement, state: EditorState, env: Ed
     }),
     nodeViews: {
       code_block: (node, v, getPos) => new CodeBlockView(node, v, getPos, env),
-      math_block: (node, v, getPos) => new MathBlockView(node, v, getPos),
-      math_inline: (node, v, getPos) => new MathInlineView(node, v, getPos),
+      math_block: (node, v, getPos) => new MathBlockView(node, v, getPos, env),
+      math_inline: (node, v, getPos) => new MathInlineView(node, v, getPos, env),
       image: (node, v, getPos) => new ImageView(node, v, getPos, env),
       media: (node, v, getPos) => new MediaView(node, v, getPos, env),
       toggle: (node, v, getPos) => new ToggleView(node, v, getPos),
@@ -180,7 +184,7 @@ export function createEditorView(mount: HTMLElement, state: EditorState, env: Ed
       html_block: (node, v, getPos) => new HtmlBlockView(node, v, getPos, env),
       html_inline: (node) => new HtmlInlineView(node, env),
       frontmatter: () => new FrontMatterView(),
-      footnote_ref: (node, v) => new FootnoteRefView(node, v),
+      footnote_ref: (node, v) => new FootnoteRefView(node, v, env),
       wikilink: (node) => new WikiLinkView(node, env),
     },
     // 偏好 PE-05:纯文本剪贴板写 Markdown 源码,或只写文字

@@ -1,54 +1,23 @@
 // KaTeX 按需加载;同一文档的公式共享宏定义(\newcommand 在后续公式里可用,与 Typora 一致)。
+// 公式选项(自动编号、physics、\\ 换行,PRD 3.7)在这里转成 KaTeX 参数,源码预处理见 math-tex.ts。
+import type { KatexOptions } from 'katex'
+import { type AutoNumber, numberDisplayTex, resolveRefs, stripLabels, syncPhysicsMacros } from './math-tex'
+
 type Katex = typeof import('katex').default
 
 let katexReady: Promise<Katex> | null = null
 const macros: Record<string, string> = {}
 
-/** 偏好「Markdown」页的公式选项:自动编号(PM-22)、physics 宏(PM-21)。 */
 export interface MathOptions {
-  /** none:不编号;ams:equation / align / gather 等环境编号(KaTeX 默认行为);all:每个块级公式都编号 */
-  numbering: 'none' | 'ams' | 'all'
+  autoNumber: AutoNumber
   physics: boolean
+  /** 块公式里顶层的 \\、\newline 换行 */
+  lineBreak: boolean
+  /** \ref / \eqref 用的「标签 → 编号」 */
+  labels?: ReadonlyMap<string, string>
 }
 
-const mathOptions: MathOptions = { numbering: 'ams', physics: false }
-
-// physics 包常用宏的近似实现(KaTeX 不带 physics 包);开启时允许覆盖同名宏(如 \div 变成散度),与 Typora 说明一致
-const PHYSICS_MACROS: Record<string, string> = {
-  '\\abs': '\\left\\lvert #1 \\right\\rvert',
-  '\\norm': '\\left\\lVert #1 \\right\\rVert',
-  '\\order': '\\mathcal{O}\\left(#1\\right)',
-  '\\bra': '\\left\\langle #1 \\right\\rvert',
-  '\\ket': '\\left\\lvert #1 \\right\\rangle',
-  '\\braket': '\\left\\langle #1 \\middle\\vert #2 \\right\\rangle',
-  '\\expval': '\\left\\langle #1 \\right\\rangle',
-  '\\dv': '\\frac{\\mathrm{d} #1}{\\mathrm{d} #2}',
-  '\\pdv': '\\frac{\\partial #1}{\\partial #2}',
-  '\\dd': '\\mathrm{d}',
-  '\\vb': '\\mathbf{#1}',
-  '\\vu': '\\hat{\\mathbf{#1}}',
-  '\\grad': '\\nabla',
-  '\\div': '\\nabla\\cdot',
-  '\\curl': '\\nabla\\times',
-  '\\laplacian': '\\nabla^2',
-  '\\comm': '\\left[#1, #2\\right]',
-  '\\tr': '\\operatorname{tr}',
-  '\\Tr': '\\operatorname{Tr}',
-  '\\rank': '\\operatorname{rank}',
-  '\\erf': '\\operatorname{erf}',
-  '\\Res': '\\operatorname{Res}',
-}
-
-function applyPhysics(): void {
-  for (const k of Object.keys(PHYSICS_MACROS)) delete macros[k]
-  if (mathOptions.physics) Object.assign(macros, PHYSICS_MACROS)
-}
-
-/** 改公式选项;已渲染的公式要由调用方重绘。 */
-export function setMathOptions(options: MathOptions): void {
-  Object.assign(mathOptions, options)
-  applyPhysics()
-}
+export const DEFAULT_MATH_OPTIONS: MathOptions = { autoNumber: 'none', physics: false, lineBreak: true }
 
 export function loadKatex(): Promise<Katex> {
   katexReady ??= Promise.all([
@@ -62,24 +31,65 @@ export function loadKatex(): Promise<Katex> {
 
 export function resetMacros(): void {
   for (const k of Object.keys(macros)) delete macros[k]
-  applyPhysics()
 }
 
-/** 「全部编号」:没写环境、没写 \tag 的块级公式套一层编号环境(多行用 gather,每行一个编号)。 */
-export function numberedTex(tex: string): string {
-  if (/\\begin\{|\\tag\b|\\notag\b|\\nonumber\b/.test(tex)) return tex
-  const env = /\\\\/.test(tex) ? 'gather' : 'equation'
-  return `\\begin{${env}}${tex}\\end{${env}}`
+/** 交给 KaTeX 的源码:去掉 \label、换掉 \ref,「全部编号」时给块公式加编号环境。 */
+export function prepareTex(tex: string, displayMode: boolean, options: MathOptions): string {
+  const source = resolveRefs(stripLabels(tex), options.labels ?? new Map<string, string>())
+  return displayMode ? numberDisplayTex(source, options.autoNumber) : source
 }
 
-export async function renderTex(tex: string, el: HTMLElement, displayMode: boolean): Promise<void> {
+function katexOptions(displayMode: boolean, options: MathOptions): KatexOptions {
+  return {
+    displayMode,
+    throwOnError: true,
+    output: 'htmlAndMathml',
+    trust: false,
+    macros,
+    globalGroup: true,
+    // 块公式顶层 \\ 是否换行由偏好决定(LaTeX 里它不换行);其余非严格写法照常放行
+    strict: (code: string) => (code === 'newLineInDisplayMode' ? (options.lineBreak ? 'ignore' : 'error') : 'ignore'),
+  }
+}
+
+export async function renderTex(tex: string, el: HTMLElement, displayMode: boolean, options: MathOptions = DEFAULT_MATH_OPTIONS): Promise<void> {
   const katex = await loadKatex()
-  const source = displayMode && mathOptions.numbering === 'all' ? numberedTex(tex) : tex
+  syncPhysicsMacros(macros, options.physics)
+  // 「不编号」:KaTeX 给 equation 等环境自动加的编号用样式隐藏,手写 \tag 照常显示
+  el.classList.toggle('tz-math-nonumber', options.autoNumber === 'none')
   try {
-    katex.render(source, el, { displayMode, throwOnError: true, output: 'htmlAndMathml', trust: false, macros, globalGroup: true })
+    katex.render(prepareTex(tex, displayMode, options), el, katexOptions(displayMode, options))
     el.classList.remove('is-error')
   } catch (err) {
     el.classList.add('is-error')
     el.textContent = err instanceof Error ? err.message : String(err)
   }
+}
+
+/** 公式 → MathML 源码(右键「复制为 MathML」,对照表 C-07)。语法错误时抛出。 */
+export async function texToMathML(tex: string, displayMode: boolean, options: MathOptions = DEFAULT_MATH_OPTIONS): Promise<string> {
+  const katex = await loadKatex()
+  syncPhysicsMacros(macros, options.physics)
+  const html = katex.renderToString(prepareTex(tex, displayMode, options), { ...katexOptions(displayMode, options), output: 'mathml' })
+  const math = /<math[\s\S]*<\/math>/.exec(html)
+  if (!math) throw new Error('公式转 MathML 失败')
+  return math[0]
+}
+
+// ---------- 刷新所有公式(对照表 E-24) ----------
+
+/** 正在显示的公式视图;「刷新所有数学公式」时按创建顺序重新渲染。 */
+const liveMath = new Set<{ refresh(): void }>()
+
+export function trackMath(view: { refresh(): void }): void {
+  liveMath.add(view)
+}
+
+export function untrackMath(view: { refresh(): void }): void {
+  liveMath.delete(view)
+}
+
+export function refreshAllMath(): void {
+  resetMacros()
+  for (const v of liveMath) v.refresh()
 }

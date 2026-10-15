@@ -305,7 +305,20 @@ const MARKDOWN_PAGE: Field[] = [
   { type: 'heading', label: '代码块' },
   { type: 'bool', key: 'codeLineNumbers', label: '代码块显示行号' },
   { type: 'bool', key: 'codeLineWrap', label: '代码块自动换行' },
+  {
+    type: 'select',
+    key: 'codeIndentWidth',
+    label: '代码缩进宽度',
+    numeric: true,
+    options: opts([
+      ['2', '2 个空格'],
+      ['3', '3 个空格'],
+      ['4', '4 个空格'],
+      ['5', '5 个空格'],
+    ]),
+  },
   { type: 'heading', label: '数学公式' },
+  { type: 'bool', key: 'mathCodeFence', label: '把 ```math 代码块显示为公式' },
   {
     type: 'select',
     key: 'mathNumbering',
@@ -318,6 +331,7 @@ const MARKDOWN_PAGE: Field[] = [
     hint: 'AMS 规则只给 equation、align、gather 等环境编号;\\tag 始终可用',
   },
   { type: 'bool', key: 'mathPhysics', label: '启用 physics 包', hint: '\\abs、\\norm、\\dv、\\pdv、\\bra、\\ket 等常用宏' },
+  { type: 'bool', key: 'mathLineBreak', label: '支持使用 \\\\ 和 \\newline 换行' },
   {
     type: 'select',
     key: 'exportMathOutput',

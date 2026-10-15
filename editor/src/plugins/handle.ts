@@ -1,17 +1,62 @@
 // Notion 块手柄:鼠标移到块上,左侧出现「+」与「⋮⋮」。
-// 「+」在下方新建一行并打开斜杠菜单;「⋮⋮」单击打开块菜单,拖动可移动整块(列表项按项移动)。
+// 「+」在下方新建一行并打开斜杠菜单;「⋮⋮」单击打开块菜单(notion-input.md 7.2),拖动可移动整块(列表项按项移动)。
+// 已多选块时,点或拖任一所选块的「⋮⋮」作用于全部所选块;按住 ⌥ 拖动为复制(落点处理见 blockselect 的 dragCopies)。
 import { NodeSelection, Plugin, TextSelection } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
+import { BlockSelection, selectedBlocks } from '../core/block-selection'
 import { blockAt, type BlockInfo } from '../core/blocks'
-import { deleteBlock, duplicateBlock, moveBlock } from '../core/commands'
+import { blocksToMarkdown } from '../core/commands'
+import type { EditorEnv } from '../core/env'
+import { basename } from '../core/paths'
+import { registerCommand } from '../core/registry'
 import { schema } from '../core/schema'
 import { ICONS, h, svgIcon } from '../ui/dom'
-import { FloatingMenu, type MenuItem } from '../ui/menu'
-import { colorItems, turnIntoItems } from './items'
+import { FloatingMenu } from '../ui/menu'
+import { removeBlocksIfUnchanged } from './blockselect'
+import { blockMenu } from './items'
 import { openSlashMenu } from './slash'
 
-export function blockHandlePlugin(): Plugin {
-  return new Plugin({ view: (view) => new BlockHandle(view) })
+/** 拖块时写进 dataTransfer 的类型,值为所拖块的 Markdown。侧栏据此识别「拖来的块」。 */
+export const BLOCK_DRAG_TYPE = 'application/x-typoza-blocks'
+
+/** 正在拖动的块(拖到侧栏文档时用);拖动结束后清空。 */
+let activeDrag: { view: EditorView; env: EditorEnv; blocks: BlockInfo[] } | null = null
+
+/**
+ * 侧栏收到拖来的块(dataTransfer 含 BLOCK_DRAG_TYPE)时调用:把块追加到目标文档末尾并从当前文档删除
+ * (notion-input.md 7.1「拖到侧栏文档」)。返回是否已移动;写文件失败时抛出。
+ */
+export async function moveDraggedBlocks(path: string): Promise<boolean> {
+  const drag = activeDrag
+  if (!drag || drag.blocks.length === 0) return false
+  const { view, env, blocks } = drag
+  if (path === env.ctx.path) return false
+  await env.actions.appendToDocument(path, blocksToMarkdown(view.state.doc, blocks, env.settings.inlineMath))
+  const title = basename(path).replace(/\.[^.]+$/, '')
+  const moved = removeBlocksIfUnchanged(view, env, blocks, title)
+  if (moved) env.actions.notify(`已移动到「${title}」`)
+  return moved
+}
+
+export function blockHandlePlugin(env: EditorEnv): Plugin {
+  const menu = new FloatingMenu({ className: 'tz-block-menu' })
+  // 右键菜单「块菜单…」:已选中的块,或光标所在块
+  registerCommand({
+    id: 'block.menu',
+    label: '块菜单…',
+    run: (view) => {
+      if (selectedBlocks(view.state).length === 0) {
+        const info = blockAt(view.state.selection.$from)
+        if (!info) return false
+        view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, info.pos)))
+      }
+      const { items, footer } = blockMenu(view)
+      const c = view.coordsAtPos(view.state.selection.from)
+      menu.open(items, { left: c.left, top: c.top, bottom: c.bottom }, '', footer)
+      return true
+    },
+  })
+  return new Plugin({ view: (view) => new BlockHandle(view, env) })
 }
 
 class BlockHandle {
@@ -24,7 +69,10 @@ class BlockHandle {
   private readonly onMove = (e: MouseEvent) => this.track(e)
   private readonly onLeave = () => this.scheduleHide()
 
-  constructor(private readonly view: EditorView) {
+  constructor(
+    private readonly view: EditorView,
+    private readonly env: EditorEnv,
+  ) {
     const plus = h('button', { type: 'button', class: 'tz-handle-plus', title: '点击在下方添加块', tabindex: '-1' }, svgIcon(ICONS.plus, 16))
     this.grip = h('button', { type: 'button', class: 'tz-handle-grip', title: '拖动移动 · 点击打开菜单', draggable: 'true', tabindex: '-1' }, svgIcon(ICONS.grip, 16))
     this.el = h('div', { class: 'tz-block-handle', hidden: true }, plus, this.grip)
@@ -41,7 +89,7 @@ class BlockHandle {
       this.openMenu()
     })
     this.grip.addEventListener('dragstart', (e) => this.startDrag(e))
-    this.grip.addEventListener('dragend', () => this.el.classList.remove('is-dragging'))
+    this.grip.addEventListener('dragend', () => this.endDrag())
     this.el.addEventListener('mouseenter', () => clearTimeout(this.hideTimer))
     this.el.addEventListener('mouseleave', this.onLeave)
     view.dom.addEventListener('mousemove', this.onMove)
@@ -56,7 +104,8 @@ class BlockHandle {
     let info: BlockInfo | null = null
     if (found.inside >= 0) {
       const node = this.view.state.doc.nodeAt(found.inside)
-      if (node && node.isBlock && node.isAtom) {
+      // 原子块(媒体、目录)与代码类块(代码、公式、HTML 的内容在节点视图里,取不到里面的位置)按整块处理
+      if (node && node.isBlock && (node.isAtom || node.type.spec.code)) {
         const $p = this.view.state.doc.resolve(found.inside)
         info = { node, pos: found.inside, depth: $p.depth }
       }
@@ -90,7 +139,14 @@ class BlockHandle {
     }, 300)
   }
 
+  /** 手柄所在块已在多块选择里:保留多块选择(菜单、拖动作用于全部所选块)。 */
+  private inMultiSelection(): boolean {
+    const sel = this.view.state.selection
+    return sel instanceof BlockSelection && this.current !== null && sel.positions.includes(this.current.pos)
+  }
+
   private selectBlock(): boolean {
+    if (this.inMultiSelection()) return true
     const info = this.current
     if (!info) return false
     const node = this.view.state.doc.nodeAt(info.pos)
@@ -119,29 +175,9 @@ class BlockHandle {
 
   private openMenu(): void {
     if (!this.selectBlock()) return
-    const view = this.view
-    const st = (cmd: typeof deleteBlock) => () => {
-      cmd(view.state, view.dispatch)
-      view.focus()
-    }
-    // 「转换为」与「颜色」作用于块内文字:先把光标放进块里
-    const enterBlock = (then: () => MenuItem[]) => () => {
-      const sel = view.state.selection
-      if (sel instanceof NodeSelection && sel.node.isBlock && !sel.node.isAtom) {
-        view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(sel.from + 1))))
-      }
-      return then()
-    }
-    const items: MenuItem[] = [
-      { id: 'block.delete', label: '删除', icon: '🗑', hint: '⌫', keywords: ['delete', 'shanchu'], run: st(deleteBlock) },
-      { id: 'block.duplicate', label: '创建副本', icon: '⧉', hint: '⌘D', keywords: ['duplicate', 'fuzhi'], run: st(duplicateBlock) },
-      { id: 'block.turnInto', label: '转换为', icon: '↻', keywords: ['turn', 'zhuanhuan'], children: enterBlock(() => turnIntoItems(view)) },
-      { id: 'block.color', label: '颜色', icon: '🎨', keywords: ['color', 'yanse'], children: enterBlock(() => colorItems(view, true)) },
-      { id: 'block.moveUp', label: '上移', icon: '↑', hint: '⌘⇧↑', keywords: ['up'], run: st(moveBlock(-1)) },
-      { id: 'block.moveDown', label: '下移', icon: '↓', hint: '⌘⇧↓', keywords: ['down'], run: st(moveBlock(1)) },
-    ]
+    const { items, footer } = blockMenu(this.view)
     const r = this.grip.getBoundingClientRect()
-    this.menu.open(items, { left: r.left, top: r.top, bottom: r.bottom })
+    this.menu.open(items, { left: r.left, top: r.top, bottom: r.bottom }, '', footer)
   }
 
   private startDrag(e: DragEvent): void {
@@ -149,17 +185,33 @@ class BlockHandle {
       e.preventDefault()
       return
     }
-    const sel = this.view.state.selection as NodeSelection
-    const { dom, text, slice } = this.view.serializeForClipboard(sel.content())
+    const view = this.view
+    const sel = view.state.selection
+    const blocks = selectedBlocks(view.state)
+    const { dom, text, slice } = view.serializeForClipboard(sel.content())
     e.dataTransfer.clearData()
     e.dataTransfer.setData('text/html', dom.innerHTML)
     e.dataTransfer.setData('text/plain', text)
+    e.dataTransfer.setData(BLOCK_DRAG_TYPE, blocksToMarkdown(view.state.doc, blocks, this.env.settings.inlineMath))
     e.dataTransfer.effectAllowed = 'copyMove'
-    const blockDom = this.view.nodeDOM(sel.from)
+    const blockDom = view.nodeDOM(blocks[0]?.pos ?? sel.from)
     if (blockDom instanceof HTMLElement) e.dataTransfer.setDragImage(blockDom, 0, 0)
-    // 放下时由 ProseMirror 删除原位置的节点选区并插入到落点(内部字段 node 精确指向被拖的块)
-    this.view.dragging = { slice, move: true, node: sel } as unknown as EditorView['dragging']
+    // 放下时由 ProseMirror 删除原位置并插入到落点:单块用内部字段 node 精确指向被拖的块;
+    // 多块不给 node,落点处理会删除当前选择(即全部所选块)。是否复制由落下时是否按住 ⌥ 决定
+    view.dragging = { slice, move: true, node: sel instanceof NodeSelection ? sel : undefined } as unknown as EditorView['dragging']
+    activeDrag = { view, env: this.env, blocks }
     this.el.classList.add('is-dragging')
+  }
+
+  private endDrag(): void {
+    this.el.classList.remove('is-dragging')
+    const view = this.view
+    const dragging = view.dragging
+    // 拖到编辑区外(如侧栏)时 ProseMirror 收不到 drop,这里清掉,免得下次外部拖入被当成移动
+    window.setTimeout(() => {
+      if (view.dragging === dragging) view.dragging = null
+      activeDrag = null
+    }, 50)
   }
 
   update(): void {

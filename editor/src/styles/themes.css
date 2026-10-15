@@ -89,7 +89,6 @@
 .tz-md-marker { color: var(--tz-text-faint); font-family: var(--tz-font-mono); font-size: 0.85em; font-weight: normal; font-style: normal; user-select: none; }
 
 /* 公式自动编号「不启用」:隐藏 KaTeX 给 equation 等环境自动加的编号(\tag 不受影响) */
-:root[data-math-numbering='none'] .katex .eqn-num { display: none; }
 
 /* 状态栏字数:关闭「总是显示字数统计」时鼠标移到状态栏才显示(PA-04) */
 .tz-statusbar.is-words-hover .tz-status-words { opacity: 0; transition: opacity 0.15s; }

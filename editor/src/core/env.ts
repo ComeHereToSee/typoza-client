@@ -23,7 +23,31 @@ export interface EditorSettings {
   spellcheck: boolean
   /** 自定义快捷键:键 → 命令 ID */
   keybindings: Record<string, string>
+  // 以下为偏好设置「Markdown」页的代码 / 公式 / 图表选项(对照表 PM-07、PM-12、PM-18、PM-20~PM-22),
+  // 偏好页还没提供时取 EDITOR_OPTION_DEFAULTS
+  /** 代码块缩进宽度(空格数) */
+  codeIndentWidth?: number
+  /** 把 ```math 代码块显示为公式 */
+  mathCodeFence?: boolean
+  /** 公式自动编号:不编号 / AMS 规则 / 全部编号 */
+  mathAutoNumber?: 'none' | 'ams' | 'all'
+  /** 启用 physics 宏 */
+  mathPhysics?: boolean
+  /** 块公式里 \\ 与 \newline 换行 */
+  mathLineBreak?: boolean
+  /** 渲染 mermaid / sequence / flow 图表 */
+  diagrams?: boolean
 }
+
+/** 可选编辑器选项的默认值。 */
+export const EDITOR_OPTION_DEFAULTS = {
+  codeIndentWidth: 2,
+  mathCodeFence: true,
+  mathAutoNumber: 'none',
+  mathPhysics: false,
+  mathLineBreak: true,
+  diagrams: true,
+} as const
 
 export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   inlineMath: true,
@@ -55,12 +79,18 @@ export interface EditorActions {
   importFiles(view: EditorView, files: ImportFile[], at?: number): Promise<void>
   /** 状态栏上方的提示条(书签取不到网页信息、操作失败等) */
   notify(message: string, error?: boolean): void
+  /** 在当前文档所在文件夹新建「name.md」(重名加序号)并写入 content;没有可用文件夹时提示并返回 null */
+  createDocument(name: string, content?: string): Promise<DocumentRef | null>
+  /** 把一段 Markdown 追加到另一篇文档末尾(块「移动到…」、拖块到侧栏文档) */
+  appendToDocument(path: string, markdown: string): Promise<void>
 }
 
 export interface DocumentRef {
   path: string
-  /** 文件名去掉扩展名 */
+  /** 文档标题:首个一级标题,没有则为文件名 */
   title: string
+  /** 文件名去掉扩展名 */
+  name: string
   /** 所在文件夹(相对根文件夹,菜单提示用) */
   dir: string
   href: string

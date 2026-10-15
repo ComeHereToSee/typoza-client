@@ -4,9 +4,12 @@ import { redo, undo } from 'prosemirror-history'
 import { Fragment, type Mark, type MarkType, type Node as PMNode, type NodeType, type ResolvedPos } from 'prosemirror-model'
 import { liftListItem, sinkListItem, wrapInList } from 'prosemirror-schema-list'
 import { type Command, type EditorState, NodeSelection, Selection, TextSelection, type Transaction } from 'prosemirror-state'
-import { goToNextCell, isInTable } from 'prosemirror-tables'
+import { CellSelection, TableMap, addRow, goToNextCell, isInTable, selectedRect } from 'prosemirror-tables'
 import type { EditorView } from 'prosemirror-view'
-import { blockAt, selectedBlock, selectedBlockRange } from './blocks'
+import { BlockSelection, reselectBlocks, selectBlocks, selectedBlocks } from './block-selection'
+import { type BlockInfo, blockAt, selectedBlock, selectedBlockRange } from './blocks'
+import type { DocMeta } from './markdown/parse'
+import { serializeBlocks } from './markdown/serialize'
 import { type MediaKind, schema } from './schema'
 
 const n = schema.nodes
@@ -73,14 +76,24 @@ export type BlockKind =
   | 'numbered'
   | 'todo'
   | 'toggle'
+  | 'toggleh1'
+  | 'toggleh2'
+  | 'toggleh3'
   | 'quote'
   | 'callout'
   | 'code'
   | 'math'
 
+/** 折叠块与折叠标题 1~3 对应的标题级别(0 为普通折叠块)。 */
+const TOGGLE_LEVEL: Partial<Record<BlockKind, number>> = { toggle: 0, toggleh1: 1, toggleh2: 2, toggleh3: 3 }
+
 /** 当前块的类型,用于菜单打勾。 */
 export function currentBlockKind(state: EditorState): BlockKind | null {
-  const $from = state.selection.$from
+  return blockKindAt(state.selection.$from)
+}
+
+/** 某个文字位置所在块的类型。 */
+export function blockKindAt($from: ResolvedPos): BlockKind | null {
   const tb = $from.parent
   const item = findAncestor($from, n.list_item)
   if (item) {
@@ -88,7 +101,10 @@ export function currentBlockKind(state: EditorState): BlockKind | null {
     const list = $from.node(item.depth - 1)
     return list.type === n.ordered_list ? 'numbered' : 'bullet'
   }
-  if (tb.type === n.toggle_summary) return 'toggle'
+  if (tb.type === n.toggle_summary) {
+    const level = tb.attrs.level as number
+    return level >= 1 && level <= 3 ? (`toggleh${level}` as BlockKind) : 'toggle'
+  }
   if (tb.type === n.heading) return `h${tb.attrs.level}` as BlockKind
   if (tb.type === n.code_block) return 'code'
   if (tb.type === n.math_block) return 'math'
@@ -115,10 +131,74 @@ function unwrapToggle(view: EditorView): boolean {
   return true
 }
 
+const SOURCE_META: DocMeta = { lineEnding: '\n', bom: false, leading: '', trailing: '\n', bullet: '-' }
+
+/**
+ * 行内内容 → Markdown 源码文字(转为代码块 / 公式块时行内样式变成源码,notion-input.md 7.3)。
+ * 段内换行变成换行符;没有任何格式时直接取文字,避免序列化转义改动原文(如「1. 」会被写成「1\. 」)。
+ */
+export function inlineSourceText(content: Fragment): string {
+  const lines: PMNode[][] = [[]]
+  let styled = false
+  content.forEach((child) => {
+    if (child.type === n.hard_break) {
+      lines.push([])
+      return
+    }
+    if (!child.isText || child.marks.length > 0) styled = true
+    lines[lines.length - 1].push(child)
+  })
+  return lines
+    .map((nodes) => {
+      if (nodes.length === 0) return ''
+      if (!styled) return nodes.map((x) => x.text ?? '').join('')
+      return serializeBlocks([n.paragraph.create(null, nodes)], SOURCE_META, { inlineMath: true, ensureTrailingNewline: false }).replace(/\n+$/, '')
+    })
+    .join('\n')
+}
+
+/** 代码块 / 公式块 → 段落:多行合为一个段落,行间为段内换行(notion-input.md 7.3【假设】)。 */
+function codeToParagraph(view: EditorView): void {
+  const { state } = view
+  const $f = state.selection.$from
+  const tb = $f.parent
+  const content: PMNode[] = []
+  tb.textContent.split('\n').forEach((line, i) => {
+    if (i > 0) content.push(n.hard_break.create())
+    if (line) content.push(schema.text(line))
+  })
+  const start = $f.before()
+  const tr = state.tr.replaceWith(start, start + tb.nodeSize, n.paragraph.create(null, content))
+  tr.setSelection(TextSelection.create(tr.doc, start + 1))
+  view.dispatch(tr)
+}
+
+/** 只有不带格式的文字(没有标记、没有图片等行内节点)。 */
+function isPlainText(content: Fragment): boolean {
+  const flags: boolean[] = []
+  content.forEach((child) => flags.push(child.isText && child.marks.length === 0))
+  return flags.every(Boolean)
+}
+
+/** 当前文本块的行内样式换成 Markdown 源码文字(随后再改成代码块 / 公式块)。 */
+function inlineToSource(view: EditorView): void {
+  const { state } = view
+  const $f = state.selection.$from
+  const tb = $f.parent
+  if (tb.type.spec.code || tb.content.size === 0 || isPlainText(tb.content)) return
+  const source = inlineSourceText(tb.content)
+  const tr = state.tr.replaceWith($f.start(), $f.end(), source ? schema.text(source) : Fragment.empty)
+  tr.setSelection(TextSelection.create(tr.doc, $f.start()))
+  view.dispatch(tr)
+}
+
 export function turnInto(view: EditorView, kind: BlockKind, attrs: Record<string, unknown> = {}): boolean {
+  const first = view.state.selection.$from
+  if (!first.parent.isTextblock) return false
+  const toggleLevel = TOGGLE_LEVEL[kind]
+  if (first.parent.type === n.toggle_summary && toggleLevel === undefined) unwrapToggle(view)
+  if ((first.parent.type === n.code_block || first.parent.type === n.math_block) && kind !== 'code' && kind !== 'math') codeToParagraph(view)
   const $from = view.state.selection.$from
-  if (!$from.parent.isTextblock) return false
-  if ($from.parent.type === n.toggle_summary && kind !== 'toggle') unwrapToggle(view)
 
   switch (kind) {
     case 'paragraph':
@@ -138,6 +218,7 @@ export function turnInto(view: EditorView, kind: BlockKind, attrs: Record<string
           return lift(s, view.dispatch)
         }
       }
+      if (kind === 'code' || kind === 'math') inlineToSource(view)
       const type = kind === 'paragraph' ? n.paragraph : kind === 'code' ? n.code_block : kind === 'math' ? n.math_block : n.heading
       const a = kind.startsWith('h') ? { level: Number(kind.slice(1)) } : kind === 'code' ? { language: attrs.language ?? '' } : null
       return setBlockType(type, a)(view.state, view.dispatch)
@@ -146,15 +227,22 @@ export function turnInto(view: EditorView, kind: BlockKind, attrs: Record<string
     case 'numbered':
     case 'todo':
       return toList(view, kind)
-    case 'toggle': {
+    case 'toggle':
+    case 'toggleh1':
+    case 'toggleh2':
+    case 'toggleh3': {
+      const level = toggleLevel ?? 0
       liftAllLists(view)
       const s = view.state
       const $f = s.selection.$from
       const tb = $f.parent
-      if (tb.type === n.toggle_summary) return true
+      if (tb.type === n.toggle_summary) {
+        if (tb.attrs.level !== level) view.dispatch(s.tr.setNodeMarkup($f.before(), null, { level }))
+        return true
+      }
       if (!(tb.type === n.paragraph || tb.type === n.heading)) return false
       const start = $f.before()
-      const toggle = n.toggle.create(null, [n.toggle_summary.create(null, tb.content)])
+      const toggle = n.toggle.create(null, [n.toggle_summary.create({ level }, tb.content)])
       const tr = s.tr.replaceWith(start, start + tb.nodeSize, toggle)
       tr.setSelection(TextSelection.create(tr.doc, start + 2 + $f.parentOffset))
       view.dispatch(tr)
@@ -164,11 +252,141 @@ export function turnInto(view: EditorView, kind: BlockKind, attrs: Record<string
       if (findAncestor($from, n.blockquote)) return lift(view.state, view.dispatch)
       liftAllLists(view)
       return wrapIn(n.blockquote)(view.state, view.dispatch)
-    case 'callout':
-      if (findAncestor($from, n.callout)) return lift(view.state, view.dispatch)
+    case 'callout': {
+      const callout = findAncestor($from, n.callout)
+      if (callout) {
+        // 已在标注块里:指定了别的类型就切换类型,否则移出标注块
+        if (typeof attrs.kind === 'string' && attrs.kind !== callout.node.attrs.kind) {
+          view.dispatch(view.state.tr.setNodeMarkup(callout.pos, null, { ...callout.node.attrs, kind: attrs.kind }))
+          return true
+        }
+        return lift(view.state, view.dispatch)
+      }
       liftAllLists(view)
-      return wrapIn(n.callout, { kind: attrs.kind ?? 'tip', title: '' })(view.state, view.dispatch)
+      // /callout 默认提醒类(`> [!NOTE]`,notion-input.md 4.2)
+      return wrapIn(n.callout, { kind: typeof attrs.kind === 'string' ? attrs.kind : 'note', title: '' })(view.state, view.dispatch)
+    }
   }
+}
+
+/** 块里第一个文本块的内容起点;没有文本块返回 null。 */
+export function firstTextPos(doc: PMNode, pos: number): number | null {
+  const node = doc.nodeAt(pos)
+  if (!node) return null
+  if (node.isTextblock) return pos + 1
+  let found: number | null = null
+  node.descendants((child, offset) => {
+    if (found !== null) return false
+    if (child.isTextblock) {
+      found = pos + 1 + offset + 1
+      return false
+    }
+    return true
+  })
+  return found
+}
+
+/** 「转换为」作用于当前选择:光标所在块,或选中的一块 / 多块(多块逐块转换,notion-input.md 7.3)。 */
+export function turnSelectedInto(view: EditorView, kind: BlockKind, attrs: Record<string, unknown> = {}): boolean {
+  const sel = view.state.selection
+  if (!(sel instanceof BlockSelection) && !(sel instanceof NodeSelection && sel.node.isBlock)) return turnInto(view, kind, attrs)
+  const blocks = selectedBlocks(view.state)
+  let ok = false
+  // 从后往前转换:后面块的结构变化不影响前面块的位置
+  for (const b of [...blocks].reverse()) {
+    const start = firstTextPos(view.state.doc, b.pos)
+    if (start === null) continue
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, start)))
+    if (turnInto(view, kind, attrs)) ok = true
+  }
+  return ok
+}
+
+/** 只含图片的段落(在 Notion 里就是一个图片块)。 */
+export function isImageParagraph(node: PMNode): boolean {
+  if (node.type !== n.paragraph || node.childCount === 0) return false
+  let images = 0
+  let other = false
+  node.forEach((child) => {
+    if (child.type === n.image) images++
+    else if (!(child.isText && !(child.text ?? '').trim())) other = true
+  })
+  return images > 0 && !other
+}
+
+/** 能「转换为」其它类型的块;表格、图片、媒体、分割线、目录等不可转换(notion-input.md 7.3)。 */
+export function isConvertibleBlock(node: PMNode): boolean {
+  if (node.type === n.paragraph) return !isImageParagraph(node)
+  if (node.type === n.heading || node.type === n.code_block || node.type === n.math_block) return true
+  if (node.type === n.list_item || node.type === n.toggle || node.type === n.blockquote || node.type === n.callout) {
+    return Boolean(node.firstChild?.isTextblock) && !isImageParagraph(node.firstChild!)
+  }
+  return false
+}
+
+/** 能设颜色的块;表格、图片、媒体、代码、公式块不显示「颜色」(notion-input.md 7.2)。 */
+export function isColorableBlock(node: PMNode): boolean {
+  const excluded = [n.table, n.media, n.code_block, n.math_block, n.horizontal_rule, n.toc, n.definition, n.html_block, n.frontmatter]
+  return !excluded.includes(node.type) && !isImageParagraph(node)
+}
+
+/** 给若干块里的全部文字设颜色(整块设色;代码块等不含格式的文本块跳过)。 */
+export function setBlocksColor(blocks: readonly BlockInfo[], color: string | null, background: string | null): Command {
+  return (state, dispatch) => {
+    if (blocks.length === 0) return false
+    if (dispatch) {
+      const tr = state.tr
+      const paint = (from: number, to: number) => {
+        if (to <= from) return
+        tr.removeMark(from, to, m.color)
+        if (color || background) tr.addMark(from, to, m.color.create({ color, background }))
+      }
+      for (const b of blocks) {
+        if (b.node.isTextblock) {
+          if (!b.node.type.spec.code) paint(b.pos + 1, b.pos + 1 + b.node.content.size)
+          continue
+        }
+        b.node.descendants((child, offset) => {
+          if (!child.isTextblock) return true
+          if (!child.type.spec.code) {
+            const start = b.pos + 1 + offset + 1
+            paint(start, start + child.content.size)
+          }
+          return false
+        })
+      }
+      dispatch(tr)
+    }
+    return true
+  }
+}
+
+/** 若干块 → Markdown(复制为 Markdown、移动到…)。同一列表里连续的列表项仍合成一个列表。 */
+export function blocksToMarkdown(doc: PMNode, blocks: readonly BlockInfo[], inlineMath: boolean): string {
+  const out: PMNode[] = []
+  let group: { listPos: number; items: PMNode[]; list: PMNode } | null = null
+  const flush = () => {
+    if (!group) return
+    const { list, items } = group
+    out.push(list.type === n.ordered_list ? n.ordered_list.create({ ...list.attrs, start: 1 }, items) : n.bullet_list.create(list.attrs, items))
+    group = null
+  }
+  for (const b of blocks) {
+    if (b.node.type !== n.list_item) {
+      flush()
+      out.push(b.node)
+      continue
+    }
+    const $b = doc.resolve(b.pos)
+    const listPos = $b.before()
+    if (!group || group.listPos !== listPos) {
+      flush()
+      group = { listPos, items: [], list: $b.parent }
+    }
+    group.items.push(b.node)
+  }
+  flush()
+  return serializeBlocks(out, SOURCE_META, { inlineMath, ensureTrailingNewline: false }).replace(/\n+$/, '')
 }
 
 function toList(view: EditorView, kind: 'bullet' | 'numbered' | 'todo'): boolean {
@@ -205,14 +423,45 @@ export const selectCurrentBlock: Command = (state, dispatch) => {
   return true
 }
 
+/** 选择对应的连续块范围;多块选择不连续时为 null(不能整体移动)。 */
+function blockRangeOf(state: EditorState): { from: number; to: number; depth: number } | null {
+  if (!(state.selection instanceof BlockSelection)) return selectedBlockRange(state)
+  const blocks = selectedBlocks(state)
+  for (let i = 1; i < blocks.length; i++) {
+    if (blocks[i].pos !== blocks[i - 1].pos + blocks[i - 1].node.nodeSize) return null
+  }
+  const last = blocks[blocks.length - 1]
+  return { from: blocks[0].pos, to: last.pos + last.node.nodeSize, depth: blocks[0].depth }
+}
+
+/** ⌘D:复制所选块;表格里选中多个单元格时为向下填充(notion-input.md 5.1 第 39 行)。 */
 export const duplicateBlock: Command = (state, dispatch) => {
+  if (state.selection instanceof CellSelection) return fillCells('down')(state, dispatch)
+  const sel = state.selection
+  if (sel instanceof BlockSelection) {
+    // 多块:副本按原顺序放在最后一个所选块之后,并选中副本
+    const blocks = selectedBlocks(state)
+    const last = blocks[blocks.length - 1]
+    const end = last.pos + last.node.nodeSize
+    if (dispatch) {
+      const tr = state.tr.insert(end, Fragment.fromArray(blocks.map((b) => b.node)))
+      const positions: number[] = []
+      let pos = end
+      for (const b of blocks) {
+        positions.push(pos)
+        pos += b.node.nodeSize
+      }
+      tr.setSelection(selectBlocks(tr.doc, positions, positions[0], positions[positions.length - 1]))
+      dispatch(tr.scrollIntoView())
+    }
+    return true
+  }
   const range = selectedBlockRange(state)
   if (!range) return false
   const content = state.doc.slice(range.from, range.to).content
   if (dispatch) {
     const size = range.to - range.from
     const tr = state.tr.insert(range.to, content)
-    const sel = state.selection
     if (sel instanceof NodeSelection) tr.setSelection(NodeSelection.create(tr.doc, sel.from + size))
     else tr.setSelection(TextSelection.create(tr.doc, sel.anchor + size, sel.head + size))
     dispatch(tr.scrollIntoView())
@@ -222,7 +471,7 @@ export const duplicateBlock: Command = (state, dispatch) => {
 
 export function moveBlock(dir: -1 | 1): Command {
   return (state, dispatch) => {
-    const range = selectedBlockRange(state)
+    const range = blockRangeOf(state)
     if (!range) return false
     const $start = state.doc.resolve(range.from)
     const container = $start.node(range.depth)
@@ -246,7 +495,9 @@ export function moveBlock(dir: -1 | 1): Command {
       delta = next.nodeSize
     }
     if (dispatch) {
-      if (sel instanceof NodeSelection) tr.setSelection(NodeSelection.create(tr.doc, sel.from + delta))
+      if (sel instanceof BlockSelection) {
+        tr.setSelection(selectBlocks(tr.doc, sel.positions.map((p) => p + delta), sel.anchorBlock + delta, sel.headBlock + delta))
+      } else if (sel instanceof NodeSelection) tr.setSelection(NodeSelection.create(tr.doc, sel.from + delta))
       else tr.setSelection(TextSelection.create(tr.doc, sel.anchor + delta, sel.head + delta))
       dispatch(tr.scrollIntoView())
     }
@@ -255,6 +506,27 @@ export function moveBlock(dir: -1 | 1): Command {
 }
 
 export const deleteBlock: Command = (state, dispatch) => {
+  if (state.selection instanceof BlockSelection) {
+    const blocks = selectedBlocks(state)
+    if (dispatch) {
+      const $first = state.doc.resolve(blocks[0].pos)
+      let selectable = 0
+      $first.parent.forEach((child) => {
+        if (child.type !== n.frontmatter && child.type !== n.toggle_summary) selectable++
+      })
+      const tr = state.tr
+      if (blocks.length >= selectable) {
+        // 容器里的块全删了:留一个空段落,容器结构保持合法
+        const last = blocks[blocks.length - 1]
+        tr.replaceWith(blocks[0].pos, last.pos + last.node.nodeSize, n.paragraph.create())
+      } else {
+        for (const b of [...blocks].reverse()) tr.delete(b.pos, b.pos + b.node.nodeSize)
+      }
+      tr.setSelection(Selection.near(tr.doc.resolve(Math.min(blocks[0].pos, tr.doc.content.size))))
+      dispatch(tr.scrollIntoView())
+    }
+    return true
+  }
   const range = selectedBlockRange(state)
   if (!range) return false
   if (dispatch) {
@@ -286,10 +558,18 @@ export const progressiveSelectAll: Command = (state, dispatch) => {
 
 // ---------- 缩进 ----------
 
+/** 代码缩进宽度(偏好「代码缩进」,对照表 PM-18);由编辑器按设置更新。 */
+let codeIndentWidth = 2
+
+export function setCodeIndentWidth(width: number): void {
+  codeIndentWidth = Math.max(1, Math.min(8, Math.round(width)))
+}
+
 function indentCode(state: EditorState, dispatch: ((tr: Transaction) => void) | undefined, dir: 1 | -1): boolean {
   const { $from, from, to } = state.selection
   if ($from.parent.type !== n.code_block && $from.parent.type !== n.math_block) return false
   if (!dispatch) return true
+  const unit = ' '.repeat(codeIndentWidth)
   const start = $from.start()
   const text = $from.parent.textContent
   const tr = state.tr
@@ -303,14 +583,15 @@ function indentCode(state: EditorState, dispatch: ((tr: Transaction) => void) | 
     offset += line.length + 1
   }
   if (dir > 0 && state.selection.empty) {
-    dispatch(tr.insertText('  '))
+    dispatch(tr.insertText(unit))
     return true
   }
+  const leading = new RegExp(`^( {1,${codeIndentWidth}}|\\t)`)
   for (const ls of lineStarts.reverse()) {
-    if (dir > 0) tr.insertText('  ', ls)
+    if (dir > 0) tr.insertText(unit, ls)
     else {
       const lineText = text.slice(ls - start)
-      const spaces = /^( {1,2}|\t)/.exec(lineText)
+      const spaces = leading.exec(lineText)
       if (spaces) tr.delete(ls, ls + spaces[0].length)
     }
   }
@@ -318,9 +599,47 @@ function indentCode(state: EditorState, dispatch: ((tr: Transaction) => void) | 
   return true
 }
 
+/** 块选中态(一块或多块列表项)按 Tab / ⇧Tab:整项缩进或反缩进,完成后仍选中这些块。 */
+function shiftSelectedItems(state: EditorState, dispatch: ((tr: Transaction) => void) | undefined, dir: 1 | -1): boolean | null {
+  const sel = state.selection
+  if (!(sel instanceof BlockSelection) && !(sel instanceof NodeSelection && sel.node.isBlock)) return null
+  const blocks = selectedBlocks(state)
+  if (blocks.length === 0 || !blocks.every((b) => b.node.type === n.list_item)) return true
+  const first = blocks[0]
+  const last = blocks[blocks.length - 1]
+  // 列表命令按文字选区找要移动的列表项:临时换成覆盖这些项的文字选区
+  const span = TextSelection.between(state.doc.resolve(first.pos + 1), state.doc.resolve(last.pos + last.node.nodeSize - 1))
+  const temp = state.apply(state.tr.setSelection(span))
+  const cmd = dir > 0 ? sinkListItem(n.list_item) : liftListItem(n.list_item)
+  cmd(temp, (tr) => {
+    if (!dispatch) return
+    const positions = blocks.map((b) => tr.mapping.map(b.pos, 1))
+    tr.setSelection(reselectBlocks(tr.doc, positions, positions[0], positions[positions.length - 1]))
+    dispatch(tr)
+  })
+  return true
+}
+
+/** 表格里 Tab:跳到下一格;已在末格时在表格末尾加一行,光标进新行第一格(PRD 3.6)。 */
+function nextCellOrNewRow(state: EditorState, dispatch: ((tr: Transaction) => void) | undefined): boolean {
+  if (goToNextCell(1)(state, dispatch)) return true
+  if (dispatch) {
+    const rect = selectedRect(state)
+    const tr = addRow(state.tr, rect, rect.map.height)
+    const table = tr.doc.nodeAt(rect.tableStart - 1)
+    if (!table) throw new Error('末格 Tab 加行后找不到表格')
+    const map = TableMap.get(table)
+    tr.setSelection(TextSelection.create(tr.doc, rect.tableStart + map.positionAt(map.height - 1, 0, table) + 1))
+    dispatch(tr.scrollIntoView())
+  }
+  return true
+}
+
 /** Tab:列表项下沉;代码块缩进;表格跳下一格;段落紧跟在列表后时并入上一个列表项(Notion 的「嵌套到上一块」)。 */
 export const indent: Command = (state, dispatch) => {
-  if (isInTable(state)) return goToNextCell(1)(state, dispatch)
+  if (isInTable(state)) return nextCellOrNewRow(state, dispatch)
+  const shifted = shiftSelectedItems(state, dispatch, 1)
+  if (shifted !== null) return shifted
   if (indentCode(state, dispatch, 1)) return true
   if (findAncestor(state.selection.$from, n.list_item)) return sinkListItem(n.list_item)(state, dispatch) || true
   const block = blockAt(state.selection.$from)
@@ -342,7 +661,10 @@ export const indent: Command = (state, dispatch) => {
 }
 
 export const outdent: Command = (state, dispatch) => {
-  if (isInTable(state)) return goToNextCell(-1)(state, dispatch)
+  // 首格 ⇧Tab 不跳出表格
+  if (isInTable(state)) return goToNextCell(-1)(state, dispatch) || true
+  const shifted = shiftSelectedItems(state, dispatch, -1)
+  if (shifted !== null) return shifted
   if (indentCode(state, dispatch, -1)) return true
   if (findAncestor(state.selection.$from, n.list_item)) return liftListItem(n.list_item)(state, dispatch) || true
   return true
@@ -487,8 +809,10 @@ export function insertBlock(node: PMNode, cursorInside = true): Command {
       pos = $from.before()
       tr.replaceWith(pos, pos + tb.nodeSize, node)
     } else {
-      const block = blockAt($from)
-      pos = block ? block.pos + block.node.nodeSize : $from.after(1)
+      // 插在当前块(块选中态时为最后一个所选块)之后
+      const blocks = selectedBlocks(state)
+      const last = blocks[blocks.length - 1]
+      pos = last ? last.pos + last.node.nodeSize : state.doc.content.size
       tr.insert(pos, node)
     }
     if (cursorInside && (node.isTextblock || node.firstChild?.isTextblock || node.type === n.table)) {
@@ -516,8 +840,9 @@ export const insertDivider: Command = (s, d) => insertBlock(n.horizontal_rule.cr
 export const insertToc: Command = (s, d) => insertBlock(n.toc.create(), false)(s, d)
 export const insertMathBlock: Command = (s, d) => insertBlock(n.math_block.create())(s, d)
 export const insertCodeBlock = (language = ''): Command => insertBlock(n.code_block.create({ language }))
-export const insertCallout = (kind = 'tip'): Command => insertBlock(n.callout.create({ kind }, n.paragraph.create()))
+export const insertCallout = (kind = 'note'): Command => insertBlock(n.callout.create({ kind }, n.paragraph.create()))
 export const insertToggle: Command = (s, d) => insertBlock(n.toggle.create(null, [n.toggle_summary.create()]))(s, d)
+export const insertHtmlBlock: Command = (s, d) => insertBlock(n.html_block.create())(s, d)
 
 export function insertMedia(kind: MediaKind, src: string, title = ''): Command {
   return insertBlock(n.media.create({ kind, src, title }), false)
@@ -570,6 +895,39 @@ export const insertFrontMatter: Command = (state, dispatch) => {
     }
   }
   return true
+}
+
+// ---------- 表格 ----------
+
+/**
+ * 选中多个单元格后批量填充(PRD 3.6):向下填充每列用最上面一格的内容,向右填充每行用最左边一格。
+ * 不是单元格多选时返回 false,让 ⌘D 回到复制块、⌘R 交给系统。
+ */
+export function fillCells(dir: 'down' | 'right'): Command {
+  return (state, dispatch) => {
+    if (!(state.selection instanceof CellSelection)) return false
+    if (dispatch) {
+      const { map, table, tableStart, left, right, top, bottom } = selectedRect(state)
+      const at = (row: number, col: number) => map.map[row * map.width + col]
+      const pairs: [number, number][] = []
+      if (dir === 'down') {
+        for (let col = left; col < right; col++) for (let row = top + 1; row < bottom; row++) pairs.push([at(top, col), at(row, col)])
+      } else {
+        for (let row = top; row < bottom; row++) for (let col = left + 1; col < right; col++) pairs.push([at(row, left), at(row, col)])
+      }
+      const tr = state.tr
+      for (const [src, dst] of pairs) {
+        const source = table.nodeAt(src)
+        const target = table.nodeAt(dst)
+        if (!source || !target || src === dst) continue
+        const from = tr.mapping.map(tableStart + dst + 1)
+        const to = tr.mapping.map(tableStart + dst + 1 + target.content.size)
+        tr.replaceWith(from, to, source.content)
+      }
+      dispatch(tr)
+    }
+    return true
+  }
 }
 
 // ---------- 撤销 ----------

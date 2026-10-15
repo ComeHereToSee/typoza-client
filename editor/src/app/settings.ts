@@ -158,10 +158,16 @@ export interface AppSettings {
   dashRule: 'en-em' | 'em'
   codeLineNumbers: boolean
   codeLineWrap: boolean
+  /** 代码块缩进宽度(空格数,PM-18) */
+  codeIndentWidth: number
+  /** 把 ```math 代码块显示为公式(PM-07) */
+  mathCodeFence: boolean
   /** 公式自动编号(PM-22) */
   mathNumbering: 'none' | 'ams' | 'all'
   /** physics 宏(PM-21) */
   mathPhysics: boolean
+  /** 块公式里 \\ 与 \newline 换行(PM-20) */
+  mathLineBreak: boolean
   /** 无样式 HTML 里公式的输出形式(PM-23) */
   exportMathOutput: 'mathml' | 'latex'
   /** 导出与打印时连续空格与单个换行:忽略 / 保留(PM-24) */
@@ -296,8 +302,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   dashRule: 'en-em',
   codeLineNumbers: false,
   codeLineWrap: true,
+  codeIndentWidth: 2,
+  mathCodeFence: true,
   mathNumbering: 'ams',
   mathPhysics: false,
+  mathLineBreak: true,
   exportMathOutput: 'mathml',
   exportWhitespace: 'ignore',
   exportFolder: 'auto',
