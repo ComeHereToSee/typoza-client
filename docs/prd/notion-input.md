@@ -74,10 +74,10 @@
 
 | 条件 | 动作 | 结果 | 存储语法 |
 |---|---|---|---|
-| 未选中文字,粘贴单个网址 | 先按纯链接插入,并在旁边弹出小菜单 | 【保持链接】(默认,Esc 同效)/【书签卡片】/【嵌入】 | 保持链接:原样网址;书签:`[网页标题](网址 "网页描述")`;嵌入:`<iframe src="嵌入地址"></iframe>` |
+| 未选中文字,粘贴单个网址 | 先按纯链接插入,并在旁边弹出小菜单 | 【保持链接】(默认,Esc 同效)/【书签卡片】/【嵌入】 | 保持链接:原样网址;书签:`<a href="网址" data-tz-type="bookmark">网页标题</a>`(单独成段;见 Z-08 替代实现);嵌入:`<iframe src="嵌入地址"></iframe>` |
 | 网址以 .png .jpg .jpeg .gif .webp .svg 结尾 | 菜单首项换成【图片】 | 插入图片 | `![](网址)` |
 | 网址以 .mp4 .mov .webm 或 .mp3 .wav .m4a .ogg 结尾 | 菜单首项换成【视频】或【音频】 | 插入媒体块 | `<video src="网址" controls></video>` / `<audio src="网址" controls></audio>` |
-| 选【书签卡片】但取不到网页标题 | 卡片标题用网址本身 | 提示「无法获取网页信息,已用网址作标题」 | `[网址](网址)` |
+| 选【书签卡片】但取不到网页标题 | 卡片标题用网址本身 | 提示「无法获取网页信息,已用网址作标题」 | `<a href="网址" data-tz-type="bookmark">网址</a>` |
 | 选【嵌入】但站点禁止嵌入 | 显示失败占位 | 提示「该网站不允许嵌入,可改为书签卡片」,带【改为书签】按钮 | 文件内容不变 |
 
 ## 四、斜杠菜单与其他触发菜单
@@ -119,11 +119,11 @@
 | 行内 | 表情 | emoji | 表情面板 | Unicode 表情字符 | Notion · 实现 |
 | 媒体 | 图片 | image、img | 选本地图片或粘贴图片网址 | `![](assets/图.png)` | Notion · 实现;Unsplash 图库不做(需联网账号) |
 | 媒体 | PDF | pdf | 选本地 PDF 或网址,内嵌预览 | `<iframe src="路径.pdf"></iframe>`【假设】 | Notion · 实现 |
-| 媒体 | 书签 | book、bookmark、web | 输入网址生成书签卡片 | `[网页标题](网址 "网页描述")` | Notion · 实现 |
+| 媒体 | 书签 | book、bookmark、web | 输入网址生成书签卡片 | `<a href="网址" data-tz-type="bookmark">网页标题</a>` | Notion · 替代实现(见对照表 Z-08) |
 | 媒体 | 视频 | video | 本地视频文件或在线视频网址 | 本地:`<video src="路径" controls></video>`;在线:`<iframe src="嵌入地址"></iframe>` | Notion · 实现 |
 | 媒体 | 音频 | audio | 本地音频文件或网址 | `<audio src="路径" controls></audio>` | Notion · 实现 |
 | 媒体 | 代码 | code | 代码块 | `` ```语言 `` 围栏 | Notion · 实现 |
-| 媒体 | 文件 | file | 选任意本地文件,复制到附件目录后显示附件卡片 | `[文件名](assets/文件名)` | Notion · 实现 |
+| 媒体 | 文件 | file | 选任意本地文件,复制到附件目录后显示附件卡片 | `<a href="assets/文件名" data-tz-type="file">文件名</a>` | Notion · 替代实现(见对照表 Z-07) |
 | 媒体 | 嵌入 | embed | 输入网址生成在线嵌入 | `<iframe src="网址"></iframe>` | Notion · 实现 |
 | 媒体 | 推文 / 地图 / 云盘等专项嵌入 | tweet、maps、drive | 并入【嵌入】,按网址自动识别 | `<iframe src="网址"></iframe>` | Notion · 替代实现(不单设条目) |
 | 高级 | 复制块 | duplicate | 在下方复制当前块 | 复制出的块与原块同语法 | Notion · 实现 |
