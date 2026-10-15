@@ -191,6 +191,13 @@ function inlineRules(options: InputRuleOptions): InputRule[] {
       if (state.doc.rangeHasMark(from, end, m.link)) return null
       return state.tr.addMark(from, end, m.link.create({ href: url, autolink: true })).insertText(' ', end)
     }),
+    // 敲完邮箱再敲空格:变成邮箱链接。GFM 里裸邮箱本来就是链接,不转的话存盘时只能写成 me\@example.com
+    new InputRule(/(?:^|\s)([\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,})\s$/, (state, match, _start, end) => {
+      const email = match[1]
+      const from = end - email.length
+      if (state.doc.rangeHasMark(from, end, m.link)) return null
+      return state.tr.addMark(from, end, m.link.create({ href: `mailto:${email}`, autolink: true })).insertText(' ', end)
+    }),
   ]
   if (options.smartPunctuation) {
     // `--` 要等空格再转换,否则敲 `---` 分割线时会先变成破折号

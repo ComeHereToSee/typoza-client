@@ -17,7 +17,7 @@ func appErr(code, message string) *rpc.Error {
 
 // friendly 是协议错误码对应的中文提示;没有列出的用服务器给的说明。
 var friendly = map[string]string{
-	api.CodeUnauthorized:       "邮箱或主密码不对",
+	api.CodeUnauthorized:       "邮箱或主密码错误",
 	api.CodeTOTPRequired:       "请输入两步验证码",
 	api.CodeTOTPInvalid:        "两步验证码不对",
 	api.CodeEmailTaken:         "这个邮箱已经注册过,请直接登录",

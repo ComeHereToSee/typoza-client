@@ -14,8 +14,8 @@ describe('同步状态文字', () => {
     expect(summarize(status({ vaults: [] }))).toBeNull()
     expect(summarize(status())).toEqual({ text: '已同步', level: 'ok' })
     expect(summarize(status({ vaults: [vault(), vault({ syncing: true })] }))?.level).toBe('busy')
-    expect(summarize(status({ vaults: [vault({ lastError: '网络断了' })] }))).toEqual({ text: '同步出错', level: 'error' })
-    expect(summarize(status({ vaults: [vault({ active: false })] }))?.level).toBe('error')
+    expect(summarize(status({ vaults: [vault({ lastError: '网络断了' })] }))).toEqual({ text: '同步失败:网络断了', level: 'error' })
+    expect(summarize(status({ vaults: [vault({ active: false })] }))?.text).toBe('同步失败:未在同步')
     expect(summarize(status({ signedIn: false, authError: '登录已失效', vaults: [] }))).toEqual({ text: '需要重新登录', level: 'error' })
   })
 

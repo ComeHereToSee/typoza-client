@@ -342,3 +342,18 @@
 .tz-sync-badge { margin-left: 6px; padding: 0 6px; border-radius: 4px; background: var(--tz-bg-active); font-size: 11px; }
 .tz-sync-indicator.is-busy { color: var(--tz-accent); }
 .tz-sync-indicator.is-error { color: #d44c47; }
+.tz-toast-action { margin-left: 12px; border: 1px solid rgba(255, 255, 255, 0.7); background: none; color: inherit; border-radius: 4px; padding: 1px 8px; cursor: pointer; font: inherit; }
+.tz-sync-status { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.tz-sync-indicator { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tz-tree-sync { margin-left: auto; padding-left: 6px; font-size: 11px; color: var(--tz-text-muted); flex: none; }
+.tz-tree-sync.is-syncing { color: var(--tz-accent); }
+.tz-tree-sync.is-error { color: #d44c47; font-weight: 700; }
+.tz-tree-root .tz-tree-sync { float: right; }
+.tz-compare { display: flex; flex-direction: column; gap: 10px; padding: 12px 18px 18px; min-height: 0; }
+.tz-compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; max-height: 58vh; overflow: auto; font-family: var(--tz-font-mono); font-size: 12px; }
+.tz-compare-head { position: sticky; top: 0; background: var(--tz-bg); font-family: var(--tz-font-sans, inherit); font-weight: 600; padding: 4px 0; }
+.tz-compare-line { white-space: pre-wrap; word-break: break-word; padding: 0 6px; min-height: 1.5em; }
+.tz-compare-line.is-left { background: rgba(212, 76, 71, 0.14); }
+.tz-compare-line.is-right { background: rgba(68, 131, 97, 0.16); }
+.tz-compare-line.is-empty { background: var(--tz-block-bg); }
+.tz-history-group { padding: 8px 10px 4px; font-size: 11px; font-weight: 600; color: var(--tz-text-muted); }

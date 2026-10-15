@@ -60,9 +60,10 @@ export class App {
     this.systemDark = options.dark
     this.session = new DocumentSession(this.host, () => this.settings)
     this.sync = new SyncController(this.host, {
-      toast: (message, error) => this.toast(message, error),
+      toast: (message, error, action) => this.toast(message, error, action),
       renderStatus: () => this.renderStatus(),
       openSyncPreferences: () => this.runAppCommand('app.syncPreferences'),
+      filesChanged: () => this.sidebar?.updateSyncBadges(),
     })
     this.env = {
       host: this.host,
@@ -98,6 +99,7 @@ export class App {
       currentPath: () => this.session.path,
       onTabChange: (tab) => void this.updateSettings({ sidebarTab: tab, sidebarVisible: true }),
       onError: (msg) => this.toast(msg, true),
+      syncBadge: (path, mtime, isDir) => this.sync.fileState(path, mtime, isDir),
     })
     this.els.app.prepend(this.sidebar.el, this.resizer())
     this.options.mount.replaceChildren(this.els.app)
@@ -891,13 +893,22 @@ export class App {
 
   // ---------- 提示 ----------
 
-  toast(message: string, error = false): void {
+  toast(message: string, error = false, action?: { label: string; run: () => void }): void {
     const t = this.els.toast
-    t.textContent = message
+    t.replaceChildren(message)
+    if (action) {
+      const btn = h('button', { type: 'button', class: 'tz-toast-action' }, action.label)
+      btn.addEventListener('click', () => {
+        t.hidden = true
+        action.run()
+      })
+      t.append(btn)
+    }
     t.classList.toggle('is-error', error)
     t.hidden = false
     clearTimeout(Number(t.dataset.timer))
-    t.dataset.timer = String(window.setTimeout(() => (t.hidden = true), error ? 6000 : 2500))
+    // 带操作按钮的提示多留一会儿,给用户时间点
+    t.dataset.timer = String(window.setTimeout(() => (t.hidden = true), action ? 12000 : error ? 6000 : 2500))
   }
 
   /** 供 E2E 与冒烟测试使用的当前 Markdown。 */

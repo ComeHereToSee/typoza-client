@@ -30,8 +30,8 @@ const (
 	NotifyEvent   = "sync.event"
 )
 
-// minPasswordLen 是注册与改密时主密码的最短长度:主密码是端到端加密的根,太短可被离线爆破。
-const minPasswordLen = 8
+// minPasswordLen 是注册与改密时主密码的最短长度(PRD 3.15):主密码是端到端加密的根,太短可被离线爆破。
+const minPasswordLen = 10
 
 // maxPreviewBytes 是历史版本预览的读取上限。
 const maxPreviewBytes = 16 << 20

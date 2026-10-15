@@ -23,7 +23,7 @@ test.describe('云同步', () => {
     await sync.locator('input[name=password]').fill('short')
     await sync.locator('input[name=confirm]').fill('short')
     await sync.locator('button[name=submit]').click()
-    await expect(sync.locator('.tz-sync-error')).toHaveText('主密码至少 8 位')
+    await expect(sync.locator('.tz-sync-error')).toHaveText('主密码至少 10 位')
     await sync.locator('input[name=password]').fill('correct horse')
     await sync.locator('input[name=confirm]').fill('correct horsf')
     await sync.locator('button[name=submit]').click()
@@ -143,5 +143,48 @@ test.describe('云同步', () => {
       }),
     )
     await expect(page.locator('.tz-toast')).toHaveText('「周报.md」在两台设备上都改过,另一份已存为「周报 (冲突 办公室的 Mac 2026-10-16 10.00).md」')
+  })
+
+  test('文件树同步标记;冲突副本并排对比后保留我的版本', async ({ page }) => {
+    await openApp(page)
+    await page.evaluate(async () => {
+      const host = window.typozaTest!.host
+      await host.syncCall('sync.register', { server: 'sync.example.com', email: 'me@example.com', password: 'correct horse' })
+      await host.syncCall('sync.linkVault', { root: '/demo', name: '笔记' })
+    })
+    await command(page, 'view.fileTree')
+    const badge = page.locator('.tz-tree-item[data-path="/demo/另一篇.md"] .tz-tree-sync')
+    await expect(badge).toHaveClass(/is-synced/)
+    await expect(page.locator('.tz-tree-root .tz-tree-sync')).toHaveClass(/is-synced/)
+
+    const emit = (params: Record<string, unknown>) =>
+      page.evaluate((p) => window.typozaTest!.host.emit('sync.event', { method: 'sync.event', params: { vaultId: 'vault-1', ...p } }), params)
+    await emit({ kind: 'progress', path: '另一篇.md', absPath: '/demo/另一篇.md', direction: 'up', bytes: 10, total: 100 })
+    await expect(badge).toHaveClass(/is-syncing/)
+    await emit({ kind: 'error', path: '另一篇.md', absPath: '/demo/另一篇.md', error: '配额已满' })
+    await expect(badge).toHaveClass(/is-error/)
+    await expect(badge).toHaveAttribute('title', '同步失败:配额已满')
+    await emit({ kind: 'synced', path: '另一篇.md', absPath: '/demo/另一篇.md', direction: 'up', reason: '修改' })
+    await expect(badge).toHaveClass(/is-synced/)
+
+    // 冲突:本机版本已被引擎另存为冲突副本 → 提示 → 并排对比 → 保留我的版本
+    const copy = '/demo/另一篇 (冲突副本 这台 Mac 2026-10-16 1000).md'
+    await page.evaluate((p) => {
+      window.typozaTest!.host.files.set(p, { kind: 'file', data: '# 另一篇\n\n我在这台 Mac 上改的。\n', mtime: Date.now() })
+    }, copy)
+    await emit({ kind: 'conflict', path: '另一篇.md', absPath: '/demo/另一篇.md', conflictPath: copy.slice('/demo/'.length), conflictAbsPath: copy })
+    await expect(page.locator('.tz-toast')).toContainText('「另一篇.md」发现修改冲突,你的版本已另存为冲突副本')
+    await page.locator('.tz-toast-action').click()
+    const grid = page.locator('.tz-compare-grid')
+    await expect(grid.locator('.tz-compare-line.is-left')).toHaveText('用于测试文档链接。')
+    await expect(grid.locator('.tz-compare-line.is-right')).toHaveText('我在这台 Mac 上改的。')
+    await page.locator('button[name=keepMine]').click()
+    await expect(page.locator('.tz-toast')).toHaveText('已保留你的版本,冲突副本已移到废纸篓')
+    const after = await page.evaluate((p) => {
+      const files = window.typozaTest!.host.files
+      const e = files.get('/demo/另一篇.md')
+      return { text: e && e.kind === 'file' ? e.data : null, copyExists: files.has(p) }
+    }, copy)
+    expect(after).toEqual({ text: '# 另一篇\n\n我在这台 Mac 上改的。\n', copyExists: false })
   })
 })

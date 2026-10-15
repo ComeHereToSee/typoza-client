@@ -245,11 +245,34 @@ function identifier(label: string): string {
   return normalizeIdentifier(label).toLowerCase()
 }
 
+/**
+ * 去掉段落、标题末尾的空格与制表符:Markdown 解析时本来就会丢掉它们,序列化器却会写成 &#x20;
+ * (边打字边自动保存、提及后自带的空格都会碰到)。末尾若在加粗等标记里,一并往里修剪。
+ */
+function trimTrailingSpace(children: PhrasingContent[]): PhrasingContent[] {
+  const last = children[children.length - 1]
+  if (!last) return children
+  if (last.type === 'text') {
+    last.value = last.value.replace(/[ \t]+$/, '')
+    if (last.value === '') {
+      children.pop()
+      return trimTrailingSpace(children)
+    }
+  } else if (last.type === 'emphasis' || last.type === 'strong' || last.type === 'delete' || last.type === 'link') {
+    trimTrailingSpace(last.children)
+    if (last.children.length === 0) {
+      children.pop()
+      return trimTrailingSpace(children)
+    }
+  }
+  return children
+}
+
 function blockToMdast(node: PMNode): RootContent {
   const n = schema.nodes
   const t = node.type
-  if (t === n.paragraph) return { type: 'paragraph', children: inlineToMdast(node, false) }
-  if (t === n.heading) return { type: 'heading', depth: node.attrs.level, children: inlineToMdast(node, false) }
+  if (t === n.paragraph) return { type: 'paragraph', children: trimTrailingSpace(inlineToMdast(node, false)) }
+  if (t === n.heading) return { type: 'heading', depth: node.attrs.level, children: trimTrailingSpace(inlineToMdast(node, false)) }
   if (t === n.blockquote) return { type: 'blockquote', children: childBlocks(node) }
   if (t === n.callout) return { type: 'tzCallout', kind: node.attrs.kind, title: node.attrs.title, children: childBlocks(node) }
   if (t === n.toggle) {

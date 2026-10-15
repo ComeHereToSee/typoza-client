@@ -48,7 +48,7 @@ export function createFakeSync(deps: FakeSyncDeps): (method: string, params: Rec
     if (status.signedIn) fail('signed_in', '已经登录,请先退出当前账号')
   }
   const strong = (password: string) => {
-    if ([...password].length < 8) fail('weak_password', '主密码至少 8 位')
+    if ([...password].length < 10) fail('weak_password', '主密码至少 10 位')
   }
   const signIn = (srv: string, mail: string) => {
     // 换了账号:原来的关联不属于新账号
@@ -83,7 +83,7 @@ export function createFakeSync(deps: FakeSyncDeps): (method: string, params: Rec
       const srv = server(str(p, 'server'))
       const mail = email(str(p, 'email'))
       const acc = accounts.get(mail)
-      if (!acc || acc.password !== str(p, 'password')) fail('unauthorized', '邮箱或主密码不对')
+      if (!acc || acc.password !== str(p, 'password')) fail('unauthorized', '邮箱或主密码错误')
       if (acc!.totpEnabled) {
         if (!str(p, 'totp')) fail('totp_required', '请输入两步验证码')
         if (str(p, 'totp') !== FAKE_TOTP_CODE) fail('totp_invalid', '两步验证码不对')

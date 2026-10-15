@@ -249,10 +249,16 @@ export function showHistory(host: Host, path: string, entries: HistoryEntry[], r
       restoreBtn.disabled = true
     }
   }
+  // PRD 3.13:同步文件夹里的文件分「本机」「云端」两栏
+  if (extraEntries.length) list.append(h('div', { class: 'tz-history-group' }, '本机'))
   for (const e of entries) {
     const el = h('div', { class: 'tz-history-item' }, h('div', null, new Date(e.time).toLocaleString('zh-CN', { hour12: false })), h('div', { class: 'tz-history-meta' }, `${e.source === 'cloud' ? '云端' : '本机'} · ${(e.size / 1024).toFixed(1)} KB`))
     el.addEventListener('click', () => void select(el, () => host.historyRead(path, e.id)))
     list.append(el)
+  }
+  if (extraEntries.length) {
+    if (entries.length === 0) list.append(h('div', { class: 'tz-side-empty' }, '本机还没有历史版本'))
+    list.append(h('div', { class: 'tz-history-group' }, '云端'))
   }
   for (const x of extraEntries) {
     const el = h('div', { class: 'tz-history-item' }, h('div', null, x.label), x.meta ? h('div', { class: 'tz-history-meta' }, x.meta) : null)

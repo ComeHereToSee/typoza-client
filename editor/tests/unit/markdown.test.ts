@@ -78,6 +78,24 @@ describe('原文保真:未编辑的文档原样写回', () => {
     const edited = EditorState.create({ doc }).tr.insertText('!', end).doc
     expect(serializeMarkdown(edited, meta, serOpts)).toBe('# 标题\n\n*  奇怪缩进的列表\n*  第二项\n\n要修改的段落!\n\n尾段  \n')
   })
+
+  it('编辑过的段落、标题末尾的空格不写成 &#x20;(含加粗等标记里的末尾空格)', () => {
+    const p = (...content: PMNode[]) => schema.nodes.paragraph.create(null, content)
+    const doc = schema.nodes.doc.create(null, [
+      schema.nodes.heading.create({ level: 2 }, schema.text('标题 ')),
+      p(schema.text('截止 2026-10-16 ')),
+      p(schema.text('前 '), schema.text('加粗 ', [schema.marks.strong.create()]), schema.text(' \t')),
+    ])
+    const meta = parseMarkdown('', parseOpts).meta
+    expect(serializeMarkdown(doc, meta, serOpts)).toBe('## 标题\n\n截止 2026-10-16\n\n前 **加粗**')
+  })
+
+  it('邮箱链接存成裸邮箱;纯文本里的 @ 才转义', () => {
+    const mail = schema.marks.link.create({ href: 'mailto:me@example.com', autolink: true })
+    const doc = schema.nodes.doc.create(null, [schema.nodes.paragraph.create(null, [schema.text('邮箱 '), schema.text('me@example.com', [mail]), schema.text(' 见')])])
+    const meta = parseMarkdown('', parseOpts).meta
+    expect(serializeMarkdown(doc, meta, serOpts)).toBe('邮箱 me@example.com 见')
+  })
 })
 
 describe('Typora 扩展语法识别', () => {

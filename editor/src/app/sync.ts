@@ -1,5 +1,6 @@
 // 云同步界面:偏好设置里的「云同步」页、状态栏同步指示、冲突提示、历史面板里的云端版本。
 // 同步本身在辅助进程里(helper/internal/syncsvc),这里只经 host.syncCall 调用并展示状态。
+import { diffRows } from '../core/linediff'
 import { basename } from '../core/paths'
 import type { CloudTrashItem, CloudVersion, RemoteVault, SyncAccount, SyncDevice, SyncEvent, SyncStatus, VaultStatus } from '../host/sync-types'
 import { type Host, SyncError } from '../host/types'
@@ -7,14 +8,22 @@ import { h } from '../ui/dom'
 import { modal } from './panels'
 
 export interface SyncUi {
-  toast(message: string, error?: boolean): void
+  toast(message: string, error?: boolean, action?: { label: string; run: () => void }): void
   /** 同步状态变了,重画状态栏 */
   renderStatus(): void
   /** 打开偏好设置并切到云同步页 */
   openSyncPreferences(): void
+  /** 文件同步状态变了,更新文件树上的同步标记 */
+  filesChanged(): void
 }
 
-const MIN_PASSWORD = 8
+/** 主密码最短长度(PRD 3.15),与辅助进程一致 */
+const MIN_PASSWORD = 10
+/** 窗口回到前台时拉取更新的最小间隔 */
+const FOCUS_SYNC_INTERVAL = 30_000
+
+export type FileSyncState = 'synced' | 'pending' | 'syncing' | 'error'
+const FILE_STATE_LABEL: Record<FileSyncState, string> = { synced: '已同步', pending: '待上传', syncing: '同步中', error: '同步失败' }
 
 export function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
@@ -56,7 +65,8 @@ export function summarize(status: SyncStatus | null): { text: string; level: 'ok
   if (status.authError) return { text: '需要重新登录', level: 'error' }
   if (!status.signedIn || status.vaults.length === 0) return null
   if (status.vaults.some((v) => v.syncing)) return { text: '同步中…', level: 'busy' }
-  if (status.vaults.some((v) => v.lastError || !v.active)) return { text: '同步出错', level: 'error' }
+  const failed = status.vaults.find((v) => v.lastError || !v.active)
+  if (failed) return { text: `同步失败:${failed.lastError || '未在同步'}`, level: 'error' }
   return { text: '已同步', level: 'ok' }
 }
 
@@ -64,6 +74,11 @@ export class SyncController {
   status: SyncStatus | null = null
   private section: HTMLElement | null = null
   private vaultList: HTMLElement | null = null
+  /** 正在传输的文件(本机绝对路径) */
+  private readonly transferring = new Set<string>()
+  /** 同步失败的文件 → 原因 */
+  private readonly failed = new Map<string, string>()
+  private lastFocusSync = 0
 
   constructor(
     private readonly host: Host,
@@ -80,21 +95,117 @@ export class SyncController {
       if (method === 'sync.status') this.setStatus(params as SyncStatus)
       else if (method === 'sync.event') this.onEvent(params as SyncEvent)
     })
+    // PRD 3.16:窗口回到前台时拉取更新(引擎平时靠实时通知与 5 分钟轮询)
+    window.addEventListener('focus', () => {
+      if (!this.status?.signedIn || this.status.vaults.length === 0 || Date.now() - this.lastFocusSync < FOCUS_SYNC_INTERVAL) return
+      this.lastFocusSync = Date.now()
+      this.call('sync.now').catch((err) => console.warn('回到前台时同步失败(状态栏会显示原因):', err))
+    })
   }
 
   private setStatus(next: SyncStatus): void {
     const flipped = this.status?.signedIn !== next.signedIn
     this.status = next
     this.ui.renderStatus()
+    this.ui.filesChanged()
     if (!this.section?.isConnected) return
     if (flipped) this.renderSection(this.section)
     else if (this.vaultList?.isConnected) this.fillVaults(this.vaultList)
   }
 
   private onEvent(ev: SyncEvent): void {
-    if (ev.kind === 'conflict' && ev.conflictPath) {
-      this.ui.toast(`「${basename(ev.path ?? '')}」在两台设备上都改过,另一份已存为「${basename(ev.conflictPath)}」`, true)
+    const path = ev.absPath
+    switch (ev.kind) {
+      case 'progress':
+        if (path) {
+          if ((ev.bytes ?? 0) < (ev.total ?? 0)) this.transferring.add(path)
+          else this.transferring.delete(path)
+        }
+        break
+      case 'synced':
+        if (path) {
+          this.transferring.delete(path)
+          this.failed.delete(path)
+        }
+        break
+      case 'error':
+        if (path) this.failed.set(path, ev.error ?? '未知原因')
+        break
+      case 'sync_finished': {
+        this.transferring.clear()
+        const root = this.status?.vaults.find((v) => v.id === ev.vaultId)?.root
+        if (!ev.error && root) for (const p of [...this.failed.keys()]) if (p.startsWith(`${root}/`)) this.failed.delete(p)
+        break
+      }
+      case 'conflict':
+        // PRD 3.16:本机版本另存为冲突副本,提示并可并排对比;从不静默覆盖
+        if (ev.conflictAbsPath && path) {
+          const copy = ev.conflictAbsPath
+          this.ui.toast(`「${basename(path)}」发现修改冲突,你的版本已另存为冲突副本`, true, { label: '并排对比', run: () => void this.compare(path, copy) })
+        }
+        break
     }
+    this.ui.filesChanged()
+  }
+
+  /** 文件树同步标记:不在已登录的同步文件夹里返回 null(仅本地)。 */
+  fileState(path: string, mtime: number, isDir: boolean): { state: FileSyncState; label: string } | null {
+    const st = this.status
+    if (!st?.signedIn) return null
+    const vault = st.vaults.find((v) => path === v.root || path.startsWith(`${v.root}/`))
+    if (!vault) return null
+    const make = (state: FileSyncState, detail?: string) => ({ state, label: detail ? `${FILE_STATE_LABEL[state]}:${detail}` : FILE_STATE_LABEL[state] })
+    if (isDir) {
+      if (path !== vault.root) return null
+      if (vault.syncing) return make('syncing')
+      if (vault.lastError || !vault.active) return make('error', vault.lastError || '未在同步')
+      return make('synced', `上次同步 ${formatTime(vault.lastSuccessAt)}`)
+    }
+    const reason = this.failed.get(path)
+    if (reason) return make('error', reason)
+    if (this.transferring.has(path)) return make('syncing')
+    // 上次成功同步之后又改过的文件:待上传(引擎监听到修改后约 1 秒内开始上传)
+    if (!vault.lastSuccessAt || mtime > Date.parse(vault.lastSuccessAt)) return make('pending')
+    return make('synced')
+  }
+
+  /** 冲突副本并排对比:左边是云端版本(原文件),右边是你的版本(冲突副本)。 */
+  private compare(original: string, copy: string): Promise<void> {
+    return this.guard(async () => {
+      const [left, right] = await Promise.all([this.host.readText(original), this.host.readText(copy)])
+      const grid = h('div', { class: 'tz-compare-grid' }, h('div', { class: 'tz-compare-head' }, `云端版本 · ${basename(original)}`), h('div', { class: 'tz-compare-head' }, `你的版本 · ${basename(copy)}`))
+      const rows = diffRows(left.text, right.text)
+      if (rows) {
+        for (const r of rows) {
+          const cell = (text: string | null, side: 'left' | 'right') =>
+            h('div', { class: `tz-compare-line${text === null ? ' is-empty' : r.kind === 'changed' ? ` is-${side}` : ''}` }, text ?? '')
+          grid.append(cell(r.left, 'left'), cell(r.right, 'right'))
+        }
+      } else {
+        grid.append(h('pre', { class: 'tz-compare-line' }, left.text), h('pre', { class: 'tz-compare-line' }, right.text))
+      }
+      const keepCloud = h('button', { type: 'button', class: 'tz-sync-btn', name: 'keepCloud' }, '保留云端版本')
+      const keepMine = h('button', { type: 'button', class: 'tz-sync-btn', name: 'keepMine' }, '保留我的版本')
+      const keepBoth = h('button', { type: 'button', class: 'tz-btn-primary', name: 'keepBoth' }, '两份都保留')
+      const dlg = modal('并排对比', h('div', { class: 'tz-compare' }, rows ? null : h('p', { class: 'tz-sync-muted' }, '文件太大,不标注差异'), grid, h('div', { class: 'tz-sync-actions' }, keepCloud, keepMine, keepBoth)))
+      keepBoth.addEventListener('click', dlg.close)
+      // 两种「保留一份」都把冲突副本移进废纸篓(可找回),不直接删除
+      keepCloud.addEventListener('click', () =>
+        void this.guard(async () => {
+          await this.host.trash(copy)
+          dlg.close()
+          this.ui.toast('已保留云端版本,冲突副本已移到废纸篓')
+        }),
+      )
+      keepMine.addEventListener('click', () =>
+        void this.guard(async () => {
+          await this.host.writeText(original, right.text, right.encoding)
+          await this.host.trash(copy)
+          dlg.close()
+          this.ui.toast('已保留你的版本,冲突副本已移到废纸篓')
+        }),
+      )
+    })
   }
 
   // ---------- 状态栏 ----------
@@ -103,9 +214,16 @@ export class SyncController {
     const s = summarize(this.status)
     if (!s) return null
     const last = this.status?.vaults.map((v) => v.lastSuccessAt).filter(Boolean).sort().pop()
-    const btn = h('button', { type: 'button', class: `tz-status-btn tz-sync-indicator is-${s.level}`, title: `云同步 · 上次成功 ${formatTime(last)}` }, `☁ ${s.text}`)
+    const btn = h('button', { type: 'button', class: `tz-status-btn tz-sync-indicator is-${s.level}`, title: `${s.text} · 上次成功 ${formatTime(last)}` }, `☁ ${s.text}`)
     btn.addEventListener('click', () => this.ui.openSyncPreferences())
-    return btn
+    const box = h('span', { class: 'tz-sync-status' }, btn)
+    // PRD 3.16:同步失败时状态栏给【重试】
+    if (s.level === 'error' && this.status?.signedIn) {
+      const retry = h('button', { type: 'button', class: 'tz-status-btn tz-sync-retry' }, '重试')
+      retry.addEventListener('click', () => void this.syncNow(''))
+      box.append(retry)
+    }
+    return box
   }
 
   // ---------- 历史面板 ----------
@@ -176,10 +294,10 @@ export class SyncController {
     totp.inputMode = 'numeric'
     const rows = {
       confirm: field('确认主密码', confirm),
-      recovery: field('恢复码', recovery, '注册时保存的 13 组字符'),
+      recovery: field('恢复码', recovery, 'Typoza 无法替你找回主密码,只能用注册时保存的恢复码重设'),
       totp: field('两步验证码', totp, '验证器 App 上当前显示的 6 位数字'),
     }
-    const passwordRow = field('主密码', password, '至少 8 位。主密码只用来在本机解锁密钥,服务器拿不到')
+    const passwordRow = field('主密码', password, `注册时至少 ${MIN_PASSWORD} 位。主密码只在本机解锁密钥,服务器拿不到`)
     const error = h('div', { class: 'tz-sync-error', hidden: true })
     const submit = h('button', { type: 'button', class: 'tz-btn-primary', name: 'submit' }, '登录')
     const tabs = h('div', { class: 'tz-sync-tabs', role: 'tablist' })
@@ -343,10 +461,22 @@ export class SyncController {
     }
   }
 
+  /** PRD 3.15:退出时可选保留本机文件(默认)或同时删除本机副本(移到废纸篓,云端数据不受影响)。 */
   private logout(): Promise<void> {
     return this.guard(async () => {
-      const choice = await this.host.confirm({ title: '退出云同步登录?', message: '本机文件与云端数据都会保留,重新登录同一账号后接着同步。', buttons: ['退出登录', '取消'] })
-      if (choice !== 0) return
+      const vaults = this.status?.vaults ?? []
+      const choice = await this.host.confirm({
+        title: '退出云同步登录?',
+        message: '云端数据都会保留。选「保留本机文件」,重新登录同一账号后接着同步;选「同时删除本机副本」,同步文件夹会移到废纸篓并解除关联。',
+        buttons: ['保留本机文件', '同时删除本机副本', '取消'],
+      })
+      if (choice === 2) return
+      if (choice === 1) {
+        for (const v of vaults) {
+          await this.call('sync.unlinkVault', { vaultId: v.id })
+          await this.host.trash(v.root)
+        }
+      }
       this.setStatus(await this.call<SyncStatus>('sync.logout'))
     })
   }
@@ -429,7 +559,7 @@ export class SyncController {
             )
             purge.addEventListener('click', () =>
               void this.guard(async () => {
-                const c = await this.host.confirm({ title: `永久删除「${basename(t.path)}」?`, message: '云端的全部历史版本都会删除,无法恢复。', buttons: ['永久删除', '取消'], style: 'warning' })
+                const c = await this.host.confirm({ title: `永久删除「${basename(t.path)}」?`, message: '永久删除后无法恢复,确定删除?', buttons: ['永久删除', '取消'], style: 'warning' })
                 if (c !== 0) return
                 await this.call('sync.purge', { vaultId: v.id, fileId: t.fileId })
                 await render()
@@ -577,10 +707,10 @@ function showRecoveryCode(code: string): void {
     h(
       'div',
       { class: 'tz-sync-dialog tz-settings-fields' },
-      h('p', null, '忘记主密码时,只能用恢复码重置。它只显示这一次,Typoza 和服务器都不保存。请抄在纸上或存进密码管理器。'),
+      h('p', null, '恢复码只显示这一次。忘记主密码且丢失恢复码,你的数据将无法解密。请抄在纸上或存进密码管理器。'),
       h('div', { class: 'tz-sync-secret', 'data-role': 'recovery-code' }, code),
       h('div', { class: 'tz-sync-actions is-start' }, copy),
-      h('label', { class: 'tz-sync-check' }, check, '我已把恢复码保存在安全的地方'),
+      h('label', { class: 'tz-sync-check' }, check, '我已妥善保存恢复码'),
       h('div', { class: 'tz-sync-actions' }, done),
     ),
   )

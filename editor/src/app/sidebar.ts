@@ -14,6 +14,8 @@ export interface SidebarCallbacks {
   currentPath(): string | null
   onTabChange(tab: SidebarTab): void
   onError(message: string): void
+  /** 云同步文件夹里的文件状态(PRD 3.8 同步标记);不在同步文件夹里返回 null */
+  syncBadge?(path: string, mtime: number, isDir: boolean): { state: string; label: string } | null
 }
 
 const MD = /\.(md|markdown|mdown|mkd|mkdn|mdwn|mdtxt|mdtext|txt)$/i
@@ -92,6 +94,22 @@ export class Sidebar {
     if (this.tab === 'files' || this.tab === 'list') void this.render()
   }
 
+  /** 同步状态变了:就地更新文件树上的同步标记,不重读目录。 */
+  updateSyncBadges(): void {
+    for (const row of Array.from(this.body.querySelectorAll<HTMLElement>('[data-sync]'))) {
+      row.querySelector('.tz-tree-sync')?.remove()
+      const badge = this.syncBadge(row.dataset.path ?? '', Number(row.dataset.mtime), row.dataset.dir === 'true')
+      if (badge) row.append(badge)
+    }
+  }
+
+  private syncBadge(path: string, mtime: number, isDir: boolean): HTMLElement | null {
+    const b = this.cb.syncBadge?.(path, mtime, isDir)
+    if (!b) return null
+    const glyph: Record<string, string> = { synced: '✓', pending: '↑', syncing: '↻', error: '!' }
+    return h('span', { class: `tz-tree-sync is-${b.state}`, title: b.label, 'aria-label': b.label }, glyph[b.state] ?? '')
+  }
+
   markCurrent(): void {
     const cur = this.cb.currentPath()
     for (const el of Array.from(this.body.querySelectorAll<HTMLElement>('[data-path]'))) el.classList.toggle('is-current', el.dataset.path === cur)
@@ -134,7 +152,9 @@ export class Sidebar {
 
   private async renderTree(): Promise<HTMLElement> {
     if (!this.root) return this.emptyRoot()
-    const header = h('div', { class: 'tz-tree-root', title: this.root }, basename(this.root) || this.root)
+    const header = h('div', { class: 'tz-tree-root', title: this.root, 'data-sync': '', 'data-path': this.root, 'data-mtime': 0, 'data-dir': 'true' }, basename(this.root) || this.root)
+    const rootBadge = this.syncBadge(this.root, 0, true)
+    if (rootBadge) header.append(rootBadge)
     header.addEventListener('contextmenu', (e) => this.contextMenu(e, { path: this.root!, name: basename(this.root!), isDir: true, size: 0, mtime: 0 }))
     const tree = h('div', { class: 'tz-tree', role: 'tree' })
     await this.renderDir(this.root, tree, 0)
@@ -154,9 +174,10 @@ export class Sidebar {
       if (!e.isDir && !MD.test(e.name)) continue
       const row = h(
         'div',
-        { class: `tz-tree-item${e.isDir ? ' is-dir' : ''}`, role: 'treeitem', 'data-path': e.path, style: `padding-left:${8 + depth * 14}px`, title: e.path },
+        { class: `tz-tree-item${e.isDir ? ' is-dir' : ''}`, role: 'treeitem', 'data-path': e.path, 'data-sync': '', 'data-mtime': e.mtime, 'data-dir': String(e.isDir), style: `padding-left:${8 + depth * 14}px`, title: e.path },
         h('span', { class: 'tz-tree-twisty' }, e.isDir ? (this.expanded.has(e.path) ? '▾' : '▸') : ''),
         h('span', { class: 'tz-tree-name' }, e.isDir ? e.name : e.name.replace(/\.(md|markdown)$/i, '')),
+        this.syncBadge(e.path, e.mtime, e.isDir),
       )
       row.addEventListener('click', (ev) => {
         if (e.isDir) {

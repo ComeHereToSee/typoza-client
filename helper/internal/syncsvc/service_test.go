@@ -387,7 +387,7 @@ func TestLoginErrorsAndSessionLoss(t *testing.T) {
 	if code, _ := a.fail(t, "sync.login", map[string]string{"server": url, "email": "x@example.com", "password": password}); code != "signed_in" {
 		t.Fatalf("已登录时再登录应报 signed_in,实际 %s", code)
 	}
-	if code, msg := b.fail(t, "sync.login", map[string]string{"server": url, "email": "x@example.com", "password": "wrong password"}); code != "unauthorized" || msg != "邮箱或主密码不对" {
+	if code, msg := b.fail(t, "sync.login", map[string]string{"server": url, "email": "x@example.com", "password": "wrong password"}); code != "unauthorized" || msg != "邮箱或主密码错误" {
 		t.Fatalf("错误密码的提示不对: %s %s", code, msg)
 	}
 	if code, _ := b.fail(t, "sync.register", map[string]string{"server": url, "email": "X@example.com", "password": password}); code != "email_taken" {
