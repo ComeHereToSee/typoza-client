@@ -1,5 +1,5 @@
 // 原生宿主:经 WKScriptMessageHandlerWithReply(名为 typoza)调用 Swift;Swift 通过 window.__typozaEmit 推事件。
-import type { Host, HostEvents } from './types'
+import { type Host, type HostEvents, SyncError } from './types'
 
 declare global {
   interface Window {
@@ -79,6 +79,12 @@ export async function createNativeHost(): Promise<{ host: Host; info: AppInfo }>
     exportDocument: (options) => call('export.run', { ...options }),
     print: () => call('export.print'),
     uploadImages: (command, paths) => call('image.upload', { command, paths }),
+
+    async syncCall<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+      const r = await call<{ ok: boolean; result?: unknown; error?: { code: string; message: string } }>('sync.call', { method, params })
+      if (!r.ok) throw new SyncError(r.error?.code ?? 'error', r.error?.message ?? '云同步出错')
+      return r.result as T
+    },
 
     on<K extends keyof HostEvents>(event: K, handler: (payload: HostEvents[K]) => void) {
       let set = listeners.get(event)

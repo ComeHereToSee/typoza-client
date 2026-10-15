@@ -21,6 +21,7 @@ import { importFile } from './assets'
 import { DocumentSession, frontMatterInfo, updateFrontMatterText } from './document'
 import { buildExportHtml } from './exporter'
 import { countWords, showHistory, showSettings, showWordCount } from './panels'
+import { SyncController } from './sync'
 import { showQuickOpen } from './quickopen'
 import { type AppSettings, loadSettings } from './settings'
 import { Sidebar, type SidebarTab } from './sidebar'
@@ -42,6 +43,7 @@ export class App {
   settings!: AppSettings
   readonly session: DocumentSession
   readonly env: EditorEnv
+  readonly sync: SyncController
   view!: EditorView
   private source: SourceEditor | null = null
   private sidebar!: Sidebar
@@ -57,6 +59,11 @@ export class App {
     this.host = options.host
     this.systemDark = options.dark
     this.session = new DocumentSession(this.host, () => this.settings)
+    this.sync = new SyncController(this.host, {
+      toast: (message, error) => this.toast(message, error),
+      renderStatus: () => this.renderStatus(),
+      openSyncPreferences: () => this.runAppCommand('app.syncPreferences'),
+    })
     this.env = {
       host: this.host,
       ctx: { path: null, rootUrl: null },
@@ -94,8 +101,10 @@ export class App {
     this.els.app.prepend(this.sidebar.el, this.resizer())
     this.options.mount.replaceChildren(this.els.app)
     this.applyAppearance()
+    this.extraSettingsSections.push(this.sync.settingsSection())
     this.registerCommands()
     this.bindHostEvents()
+    this.sync.bind()
     this.bindBrowserKeys()
 
     const doc = this.session.createEmpty()
@@ -447,7 +456,7 @@ export class App {
     const sourceBtn = h('button', { type: 'button', class: `tz-status-btn${this.source ? ' is-on' : ''}`, title: '源代码模式(⌃⌘/)' }, '</>')
     sourceBtn.addEventListener('click', () => this.runAppCommand('view.sourceMode'))
     const state = h('span', { class: 'tz-status-text' }, this.session.dirty ? (this.settings.autoSave && this.session.path ? '正在保存…' : '未保存') : this.session.path ? '已保存' : '')
-    this.els.status.replaceChildren(sidebarBtn, sourceBtn, h('span', { class: 'tz-status-spacer' }), state, words)
+    this.els.status.replaceChildren(sidebarBtn, sourceBtn, h('span', { class: 'tz-status-spacer' }), this.sync.statusButton() ?? '', state, words)
   }
 
   // ---------- 源码模式 ----------
@@ -675,13 +684,24 @@ export class App {
     cmd('file.history', '浏览所有版本…', () => {
       const path = this.session.path
       if (!path) return
-      void this.host.historyList(path).then((entries) =>
-        showHistory(this.host, path, entries, (text) => {
-          const { doc, meta } = parseMarkdown(text, { inlineMath: this.settings.inlineMath })
-          this.session.meta = meta
-          this.view.updateState(createEditorState(doc, this.env))
-          this.onDocChange()
-        }),
+      // 本机快照 + 云端版本(文件在同步文件夹里时);恢复都是把内容放回编辑器,保存后作为新版本同步
+      void Promise.all([this.host.historyList(path), this.sync.cloudVersions(path)]).then(([entries, cloud]) =>
+        showHistory(
+          this.host,
+          path,
+          entries,
+          (text) => {
+            const { doc, meta } = parseMarkdown(text, { inlineMath: this.settings.inlineMath })
+            this.session.meta = meta
+            this.view.updateState(createEditorState(doc, this.env))
+            this.onDocChange()
+          },
+          cloud.map((v) => ({
+            label: new Date(v.mtime).toLocaleString('zh-CN', { hour12: false }),
+            meta: `云端 · 第 ${v.version} 版 · ${v.thisDevice ? '本机' : '其他设备'} · ${(v.size / 1024).toFixed(1)} KB`,
+            load: () => this.sync.readVersion(path, v.version),
+          })),
+        ),
       )
     })
     cmd('file.reload', '从磁盘重新载入', () => {
@@ -741,6 +761,7 @@ export class App {
     })
     for (const theme of ['typoza', 'github', 'newsprint', 'night', 'whitey']) cmd(`theme.${theme}`, theme, () => void this.updateSettings({ theme }))
     cmd('app.preferences', '偏好设置…', () => showSettings(this.settings, (patch) => void this.updateSettings(patch), this.extraSettingsSections))
+    cmd('app.syncPreferences', '云同步…', () => showSettings(this.settings, (patch) => void this.updateSettings(patch), this.extraSettingsSections, '云同步'))
     cmd('edit.copyMarkdown', '复制为 Markdown', () => {
       const { from, to } = this.view.state.selection
       void navigator.clipboard.writeText(sliceToMarkdown(this.view.state.doc.slice(from, to).content, this.env))

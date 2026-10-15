@@ -1,4 +1,5 @@
 // 内存宿主:浏览器开发与 E2E 测试用。文件全部放在内存里,测试经 window.typozaTest 预置。
+import { createFakeSync } from './fake-sync'
 import type { FileStat, Host, HostEvents, SearchHit } from './types'
 
 type Entry = { kind: 'dir'; mtime: number } | { kind: 'file'; data: string | Uint8Array; mtime: number }
@@ -10,6 +11,8 @@ export interface MemoryHost extends Host {
   emit<K extends keyof HostEvents>(event: K, payload: HostEvents[K]): void
   /** 记录调用,测试断言用 */
   calls: { method: string; args: unknown[] }[]
+  /** 测试预置的「打开」对话框结果,按调用顺序取出;取空时返回 null(相当于取消) */
+  dialogQueue: (string[] | null)[]
 }
 
 function parentOf(path: string): string {
@@ -68,11 +71,18 @@ export function createMemoryHost(): MemoryHost {
     return typeof e.data === 'string' ? e.data : new TextDecoder().decode(e.data)
   }
 
+  // 模拟的云同步:浏览器预览与 E2E 用,行为与错误码对齐辅助进程(helper/internal/syncsvc)
+  const fakeSync = createFakeSync({
+    emit: (payload) => host.emit('sync.event', payload),
+    readText: (path) => (files.has(path) ? text(path) : null),
+  })
+
   const host: MemoryHost = {
     platform: 'browser',
     files,
     settings,
     calls,
+    dialogQueue: [],
     emit(event, payload) {
       for (const fn of listeners.get(event) ?? []) fn(payload)
     },
@@ -156,8 +166,9 @@ export function createMemoryHost(): MemoryHost {
       record('setWindowState', state)
       document.title = `${state.edited ? '● ' : ''}${state.title}`
     },
-    async openDialog() {
-      return null
+    async openDialog(options) {
+      record('openDialog', options)
+      return host.dialogQueue.shift() ?? null
     },
     async saveDialog(options) {
       record('saveDialog', options)
@@ -209,6 +220,7 @@ export function createMemoryHost(): MemoryHost {
     async uploadImages(_command, paths) {
       return paths.map((p) => `https://img.example.com${p}`)
     },
+    syncCall: (method, params) => fakeSync(method, params ?? {}) as Promise<never>,
     on(event, handler) {
       let set = listeners.get(event)
       if (!set) listeners.set(event, (set = new Set()))

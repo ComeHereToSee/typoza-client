@@ -54,6 +54,12 @@ export async function runSmoke(app: App): Promise<SmokeResult> {
 
     // 保存往返:未编辑的文档写回后与原文逐字相同
     checks.roundTrip = app.markdown() === DEMO_MARKDOWN
+
+    // 云同步链路:网页 → 外壳 → 辅助进程 → 返回;全新环境下应为未登录
+    const t1 = performance.now()
+    const sync = await host.syncCall<{ signedIn: boolean; vaults: unknown[] }>('sync.status')
+    timings.syncStatusMs = Math.round(performance.now() - t1)
+    checks.syncHelper = sync.signedIn === false && Array.isArray(sync.vaults)
   } catch (err) {
     return { ok: false, checks, timings, error: err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err) }
   }

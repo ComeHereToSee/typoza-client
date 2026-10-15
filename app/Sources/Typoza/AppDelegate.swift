@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let smokeOut: URL?
     let settings = SettingsStore()
     let history = HistoryStore()
+    let helper = HelperManager()
     private(set) var windows: [DocumentWindowController] = []
     private var pendingOpen: [(String, Bool)] = []
     private var launched = false
@@ -48,6 +49,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             for (path, isDir) in pendingOpen { open(path: path, isDir: isDir, newWindow: true) }
         }
         pendingOpen.removeAll()
+        helper.broadcast = { [weak self] event, payload in
+            self?.windows.forEach { $0.emit(event, payload) }
+        }
+        if smokeOut == nil { helper.startIfConfigured() }
         appearanceObservation = NSApp.observe(\.effectiveAppearance) { [weak self] app, _ in
             let dark = app.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             self?.windows.forEach { $0.emit("app.appearance", ["dark": dark]) }
@@ -220,6 +225,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func clearRecent(_ sender: NSMenuItem) {
         NSDocumentController.shared.clearRecentDocuments(nil)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        helper.stop()
     }
 
     // ---------- 退出:逐个窗口确认未保存的修改 ----------

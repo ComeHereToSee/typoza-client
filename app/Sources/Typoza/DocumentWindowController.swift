@@ -281,6 +281,10 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
                 }
             }
 
+        case "sync.call":
+            // 云同步:转发给辅助进程;结果里带 ok 与错误码,不走 reply 的错误通道
+            app.helper.callFromWeb(params.optionalString("method") ?? "", params: params.dictionary("params")) { reply($0, nil) }
+
         case "settings.get":
             sync { try app.settings.load() }
         case "settings.set":

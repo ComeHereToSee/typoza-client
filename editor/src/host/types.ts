@@ -88,8 +88,19 @@ export interface HostEvents {
   'window.willClose': Record<string, never>
   /** 系统外观切换 */
   'app.appearance': { dark: boolean }
-  /** 云同步状态与事件(辅助进程转发) */
-  'sync.event': { type: string; [key: string]: unknown }
+  /** 云同步通知(外壳转发辅助进程的 sync.status / sync.event) */
+  'sync.event': { method: string; params: unknown }
+}
+
+/** 云同步调用失败:code 是辅助进程给的错误码(如 totp_required、session_lost),message 可直接展示。 */
+export class SyncError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'SyncError'
+  }
 }
 
 export interface Host {
@@ -144,6 +155,9 @@ export interface Host {
   print(): Promise<void>
   /** 执行用户配置的图片上传命令,返回上传后的网址 */
   uploadImages(command: string, paths: string[]): Promise<string[]>
+
+  /** 云同步:调用辅助进程的 sync.* 方法;失败抛 SyncError */
+  syncCall<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T>
 
   on<K extends keyof HostEvents>(event: K, handler: (payload: HostEvents[K]) => void): () => void
 }

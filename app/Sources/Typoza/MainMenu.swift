@@ -44,6 +44,7 @@ enum MainMenu {
             std("关于 Typoza", #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
             sep,
             cmd("偏好设置…", "app.preferences", ","),
+            cmd("云同步…", "app.syncPreferences"),
             sep,
             std("隐藏 Typoza", #selector(NSApplication.hide(_:)), "h"),
             std("隐藏其他", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),

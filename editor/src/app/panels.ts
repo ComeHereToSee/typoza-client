@@ -3,7 +3,7 @@ import { h } from '../ui/dom'
 import type { HistoryEntry, Host } from '../host/types'
 import { BUILTIN_THEMES, type AppSettings } from './settings'
 
-function modal(title: string, body: HTMLElement, onClose?: () => void): { root: HTMLElement; close: () => void } {
+export function modal(title: string, body: HTMLElement, onClose?: () => void): { root: HTMLElement; close: () => void } {
   const closeBtn = h('button', { type: 'button', class: 'tz-modal-close', title: '关闭(Esc)' }, '×')
   const panel = h('div', { class: 'tz-modal-panel', role: 'dialog', 'aria-label': title }, h('div', { class: 'tz-modal-head' }, h('h2', null, title), closeBtn), body)
   const root = h('div', { class: 'tz-modal' }, panel)
@@ -128,7 +128,7 @@ const SECTIONS: { id: string; title: string; fields: Field[] }[] = [
   },
 ]
 
-export function showSettings(settings: AppSettings, onChange: (patch: Partial<AppSettings>) => void, extraSections: { title: string; render: () => HTMLElement }[] = []): void {
+export function showSettings(settings: AppSettings, onChange: (patch: Partial<AppSettings>) => void, extraSections: { title: string; render: () => HTMLElement }[] = [], initialTitle?: string): void {
   const nav = h('nav', { class: 'tz-settings-nav' })
   const content = h('div', { class: 'tz-settings-content' })
   const sections = [
@@ -147,7 +147,7 @@ export function showSettings(settings: AppSettings, onChange: (patch: Partial<Ap
     nav.append(b)
   })
   modal('偏好设置', h('div', { class: 'tz-settings' }, nav, content))
-  show(0)
+  show(Math.max(0, sections.findIndex((s) => s.title === initialTitle)))
 }
 
 function renderFields(fields: Field[], settings: AppSettings, onChange: (patch: Partial<AppSettings>) => void): HTMLElement {
@@ -231,7 +231,7 @@ export function showWordCount(stats: WordStats, selection: WordStats | null): vo
 
 // ---------- 历史版本 ----------
 
-export function showHistory(host: Host, path: string, entries: HistoryEntry[], restore: (text: string) => void, extraEntries: { label: string; load: () => Promise<string> }[] = []): void {
+export function showHistory(host: Host, path: string, entries: HistoryEntry[], restore: (text: string) => void, extraEntries: { label: string; meta?: string; load: () => Promise<string> }[] = []): void {
   const preview = h('pre', { class: 'tz-history-preview' }, '选择左侧的版本查看内容')
   const restoreBtn = h('button', { type: 'button', class: 'tz-btn-primary', disabled: true }, '恢复这个版本')
   let current: string | null = null
@@ -255,7 +255,7 @@ export function showHistory(host: Host, path: string, entries: HistoryEntry[], r
     list.append(el)
   }
   for (const x of extraEntries) {
-    const el = h('div', { class: 'tz-history-item' }, x.label)
+    const el = h('div', { class: 'tz-history-item' }, h('div', null, x.label), x.meta ? h('div', { class: 'tz-history-meta' }, x.meta) : null)
     el.addEventListener('click', () => void select(el, x.load))
     list.append(el)
   }

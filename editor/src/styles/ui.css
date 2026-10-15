@@ -302,3 +302,43 @@
 .tz-history-right { flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 12px; min-width: 0; }
 .tz-history-preview { flex: 1; overflow: auto; margin: 0; padding: 12px; border-radius: 6px; background: var(--tz-block-bg); font-family: var(--tz-font-mono); font-size: 12px; white-space: pre-wrap; }
 .tz-history-right .tz-btn-primary { align-self: flex-end; }
+
+/* ---------- 云同步 ---------- */
+.tz-sync { font-size: 14px; }
+.tz-sync-intro, .tz-sync-muted { color: var(--tz-text-muted); font-size: 12px; margin: 0; }
+.tz-sync-error { color: #d44c47; font-size: 13px; white-space: pre-wrap; }
+.tz-sync-h { margin: 8px 0 0; font-size: 13px; font-weight: 600; }
+.tz-sync-tabs { display: flex; gap: 4px; }
+.tz-sync-tab { border: 1px solid var(--tz-border); background: none; border-radius: 5px; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 13px; color: var(--tz-text); }
+.tz-sync-tab.is-active { background: var(--tz-bg-active); border-color: transparent; font-weight: 500; }
+.tz-sync input[type='password'], .tz-sync-dialog input[type='password'], .tz-sync-dialog input[type='text'], .tz-sync-dialog select {
+  padding: 5px 8px;
+  border: 1px solid var(--tz-border);
+  border-radius: 5px;
+  background: var(--tz-bg);
+  color: var(--tz-text);
+  font: inherit;
+  max-width: 360px;
+}
+.tz-sync-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.tz-sync-actions.is-start { justify-content: flex-start; }
+.tz-sync-btn { border: 1px solid var(--tz-border); background: var(--tz-bg); color: var(--tz-text); border-radius: 5px; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 13px; white-space: nowrap; }
+.tz-sync-btn:hover { background: var(--tz-bg-hover); }
+.tz-sync-btn.is-danger { color: #d44c47; }
+.tz-sync-account { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.tz-sync-vaults, .tz-sync-list { display: flex; flex-direction: column; gap: 8px; }
+.tz-sync-vault, .tz-sync-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--tz-border); border-radius: 8px; }
+.tz-sync-vault.has-error { border-color: #d44c47; }
+.tz-sync-vault-main { min-width: 0; }
+.tz-sync-vault-state { font-size: 12px; margin-top: 2px; }
+.tz-sync-vault.has-error .tz-sync-vault-state { color: #d44c47; }
+.tz-sync-vault-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.tz-sync-path { font-family: var(--tz-font-mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tz-sync-dialog { padding: 16px 22px 20px; overflow-y: auto; }
+.tz-sync-secret { font-family: var(--tz-font-mono); font-size: 15px; letter-spacing: 0.04em; padding: 12px; border-radius: 6px; background: var(--tz-block-bg); user-select: all; word-break: break-all; }
+.tz-sync-qr { width: 180px; height: 180px; background: #fff; border-radius: 6px; }
+.tz-sync-qr svg { width: 100%; height: 100%; }
+.tz-sync-check { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.tz-sync-badge { margin-left: 6px; padding: 0 6px; border-radius: 4px; background: var(--tz-bg-active); font-size: 11px; }
+.tz-sync-indicator.is-busy { color: var(--tz-accent); }
+.tz-sync-indicator.is-error { color: #d44c47; }
