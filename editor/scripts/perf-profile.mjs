@@ -72,29 +72,56 @@ await new Promise((resolve, reject) => {
   })
 })
 
-const report = { phases: {}, profiles: {} }
+const report = { scaling: [], phases: {}, profiles: {} }
+const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a)
 const browser = await chromium.launch()
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 860 } })
+  page.setDefaultTimeout(600_000)
   await page.goto(`http://localhost:${PORT}/`)
   await page.waitForSelector('html[data-ready="true"]', { timeout: 120_000 })
   const cdp = await page.context().newCDPSession(page)
   await cdp.send('Profiler.enable')
-  await cdp.send('Profiler.setSamplingInterval', { interval: 200 })
+  await cdp.send('Profiler.setSamplingInterval', { interval: 1000 })
   const profiled = async (name, fn) => {
     await cdp.send('Profiler.start')
     const result = await fn()
     const { profile } = await cdp.send('Profiler.stop')
     report.profiles[name] = summarize(profile)
+    log('剖析完成', name)
     return result
   }
 
-  const md = bigMarkdown(5 * 1024 * 1024)
+  // 解析与打开都在页面里计时;size 档位用来看耗时随文档大小怎么增长(线性还是平方)
+  const measure = (size, path) =>
+    page.evaluate(
+      async ({ text, path }) => {
+        const t0 = performance.now()
+        const { doc } = window.typozaTest.parse(text, { inlineMath: true })
+        const parseMs = performance.now() - t0
+        window.typozaTest.host.files.set(path, { kind: 'file', data: text, mtime: Date.now() })
+        const t1 = performance.now()
+        await window.typozaTest.app.openFile(path, { replace: true })
+        await new Promise((r) => requestAnimationFrame(() => r()))
+        const openMs = performance.now() - t1
+        const t2 = performance.now()
+        await window.typozaTest.load('# 小文档\n\n一段话。\n')
+        const closeMs = performance.now() - t2
+        return { blocks: doc.childCount, parseMs: Math.round(parseMs), openMs: Math.round(openMs), closeMs: Math.round(closeMs) }
+      },
+      { text: bigMarkdown(size), path },
+    )
+  for (const kb of [256, 512, 1024]) {
+    const r = await measure(kb * 1024, `/demo/size-${kb}.md`)
+    report.scaling.push({ kb, ...r })
+    log('档位', kb, 'KB', JSON.stringify(r))
+  }
+
+  const md = bigMarkdown(1024 * 1024)
   report.bytes = Buffer.byteLength(md)
   await page.evaluate((text) => {
     window.__bigMd = text
   }, md)
-
   report.phases.parseMs = await profiled('解析', () =>
     page.evaluate(() => {
       const t = performance.now()
@@ -104,18 +131,15 @@ try {
     }),
   )
   report.blocks = await page.evaluate(() => window.__bigBlocks)
-
   report.phases.openMs = await profiled('打开并渲染', () =>
     page.evaluate(async () => {
-      const host = window.typozaTest.host
-      host.files.set('/demo/big.md', { kind: 'file', data: window.__bigMd, mtime: Date.now() })
+      window.typozaTest.host.files.set('/demo/big.md', { kind: 'file', data: window.__bigMd, mtime: Date.now() })
       const t = performance.now()
       await window.typozaTest.app.openFile('/demo/big.md', { replace: true })
       await new Promise((r) => requestAnimationFrame(() => r()))
       return Math.round(performance.now() - t)
     }),
   )
-
   report.phases.input = await profiled('连续输入', () =>
     page.evaluate(() => {
       const view = window.typozaTest.app.view
@@ -130,7 +154,6 @@ try {
       return { p50: Math.round(samples[20] * 10) / 10, p95: Math.round(samples[37] * 10) / 10, max: Math.round(samples[39] * 10) / 10 }
     }),
   )
-
   report.phases.switchBackMs = await profiled('切回小文档', () =>
     page.evaluate(async () => {
       const t = performance.now()
@@ -144,7 +167,7 @@ try {
 }
 
 writeFileSync(join(out, 'perf.json'), JSON.stringify(report, null, 2))
-const lines = [`# 大文档性能剖析(Chromium,开发版)`, '', `文档 ${report.bytes} 字节,${report.blocks} 个顶层块`, '', '```json', JSON.stringify(report.phases, null, 2), '```']
+const lines = [`# 大文档性能剖析(Chromium,开发版)`, '', '## 规模与耗时', '', '```json', JSON.stringify(report.scaling, null, 2), '```', '', `剖析文档 ${report.bytes} 字节,${report.blocks} 个顶层块`, '', '```json', JSON.stringify(report.phases, null, 2), '```']
 for (const [name, p] of Object.entries(report.profiles)) {
   lines.push('', `## ${name} · 自耗时 Top`, '', '| 毫秒 | 函数 |', '|---|---|', ...p.self.map((x) => `| ${x.ms} | ${x.fn} |`))
   lines.push('', `## ${name} · 含子调用 Top`, '', '| 毫秒 | 函数 |', '|---|---|', ...p.total.slice(0, 25).map((x) => `| ${x.ms} | ${x.fn} |`))

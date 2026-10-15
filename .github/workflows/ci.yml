@@ -90,6 +90,7 @@ jobs:
       - name: chromium
         run: ../ci/step.sh chromium npx playwright install --with-deps chromium
       - name: profile
+        timeout-minutes: 20
         run: ../ci/step.sh profile node scripts/perf-profile.mjs "$CI_OUT/perf"
       - name: publish
         if: always()
