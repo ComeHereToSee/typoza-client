@@ -160,6 +160,11 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
             app.mark("appReady")
             ready = true
             reply(nil, nil)
+            // app.info 之后、就绪之前才到的打开请求(启动时 Finder 传来的文件)
+            if let (path, isDir) = openRequest {
+                openRequest = nil
+                emit("app.open", ["path": path, "isDir": isDir])
+            }
             for id in queuedCommands { emit("menu.command", ["id": id]) }
             queuedCommands.removeAll()
             if smokeOut != nil { runSmoke() }

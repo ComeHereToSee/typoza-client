@@ -10,8 +10,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let history = HistoryStore()
     let helper = HelperManager()
     private(set) var windows: [DocumentWindowController] = []
-    private var pendingOpen: [(String, Bool)] = []
-    private var launched = false
     private var closedPaths: [String] = []
     private let recentMenu = NSMenu(title: "打开最近使用")
     private var appearanceObservation: NSKeyValueObservation?
@@ -56,25 +54,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.windowsMenu = NSApp.mainMenu?.item(withTitle: "窗口")?.submenu
         NSApp.helpMenu = NSApp.mainMenu?.item(withTitle: "帮助")?.submenu
         NSWindow.allowsAutomaticWindowTabbing = true
+        // 首个窗口在这里就建,不等 didFinishLaunching:网页进程的启动与 AppKit 余下的启动并行,冷启动约快 0.15 秒。
+        // 随后 Finder 传来的文件(application(_:open:))会直接用这个空白窗口打开。
+        let paths = commandLinePaths()
+        if paths.isEmpty {
+            newWindow(open: nil)
+        } else {
+            for (path, isDir) in paths { open(path: path, isDir: isDir, newWindow: true) }
+        }
+    }
+
+    /// 命令行直接传入的文件(开发调试用):typoza <路径>;--smoke-out 后面的输出目录不算
+    private func commandLinePaths() -> [(String, Bool)] {
+        var args = Array(CommandLine.arguments.dropFirst())
+        if let i = args.firstIndex(of: "--smoke-out") { args.removeSubrange(i ..< min(i + 2, args.count)) }
+        return args.compactMap { arg in
+            var isDir: ObjCBool = false
+            guard !arg.hasPrefix("-"), FileManager.default.fileExists(atPath: arg, isDirectory: &isDir) else { return nil }
+            return (arg, isDir.boolValue)
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         mark("didFinishLaunching")
-        launched = true
-        // 命令行直接传入的文件(开发调试用):typoza <路径>;--smoke-out 后面的输出目录不算
-        var args = Array(CommandLine.arguments.dropFirst())
-        if let i = args.firstIndex(of: "--smoke-out") { args.removeSubrange(i ..< min(i + 2, args.count)) }
-        for arg in args where !arg.hasPrefix("-") && FileManager.default.fileExists(atPath: arg) {
-            var isDir: ObjCBool = false
-            FileManager.default.fileExists(atPath: arg, isDirectory: &isDir)
-            pendingOpen.append((arg, isDir.boolValue))
-        }
-        if pendingOpen.isEmpty {
-            newWindow(open: nil)
-        } else {
-            for (path, isDir) in pendingOpen { open(path: path, isDir: isDir, newWindow: true) }
-        }
-        pendingOpen.removeAll()
         helper.broadcast = { [weak self] event, payload in
             self?.windows.forEach { $0.emit(event, payload) }
         }
@@ -90,12 +92,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }
 
-    // Finder 双击、拖到 Dock 图标
+    // Finder 双击、拖到 Dock 图标:有空白窗口就用它,否则开新窗口
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
             var isDir: ObjCBool = false
             FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
-            if launched { open(path: url.path, isDir: isDir.boolValue, newWindow: true) } else { pendingOpen.append((url.path, isDir.boolValue)) }
+            open(path: url.path, isDir: isDir.boolValue, newWindow: false)
         }
     }
 
