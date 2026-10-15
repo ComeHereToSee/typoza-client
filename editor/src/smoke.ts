@@ -23,9 +23,9 @@ async function until(cond: () => boolean, timeoutMs: number): Promise<boolean> {
   return cond()
 }
 
-export async function runSmoke(app: App): Promise<SmokeResult> {
+export async function runSmoke(app: App, bootTimings: Record<string, number> = {}): Promise<SmokeResult> {
   const checks: Record<string, boolean> = {}
-  const timings: Record<string, number> = { bootMs: Math.round(performance.now()) }
+  const timings: Record<string, number> = { ...bootTimings, bootMs: Math.round(performance.now()) }
   try {
     const host = app.host
     const dir = `${host.homeDir()}/Library/Caches/app.typoza.mac/smoke`

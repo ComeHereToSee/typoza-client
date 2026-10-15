@@ -15,6 +15,8 @@ declare global {
 }
 
 let loadSeq = 0
+// 启动分段计时(冒烟报告用):模块开始执行时刻、应用初始化完成时刻,均相对页面导航起点
+const bootTimings: Record<string, number> = { moduleStartMs: Math.round(performance.now()), timeOriginEpochMs: Math.round(performance.timeOrigin) }
 
 async function boot(): Promise<void> {
   const mount = document.getElementById('app')
@@ -23,8 +25,10 @@ async function boot(): Promise<void> {
   let app: App
   if (hasNativeBridge()) {
     const { host, info } = await createNativeHost()
+    bootTimings.hostReadyMs = Math.round(performance.now())
     app = new App({ host, mount, openPath: info.openPath, openIsDir: info.openIsDir, dark: info.dark })
     await app.init()
+    bootTimings.appInitMs = Math.round(performance.now())
   } else {
     const host = createMemoryHost()
     seedDemo(host)
@@ -44,7 +48,7 @@ async function boot(): Promise<void> {
       parse: parseMarkdown,
     }
   }
-  window.typoza = { smoke: () => runSmoke(app), markdown: () => app.markdown(), prepareClose: () => app.confirmLeave() }
+  window.typoza = { smoke: () => runSmoke(app, bootTimings), markdown: () => app.markdown(), prepareClose: () => app.confirmLeave() }
   document.documentElement.dataset.ready = 'true'
   void window.webkit?.messageHandlers?.typoza?.postMessage({ method: 'app.ready', params: {} })
 }

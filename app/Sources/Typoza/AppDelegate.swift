@@ -16,8 +16,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let recentMenu = NSMenu(title: "打开最近使用")
     private var appearanceObservation: NSKeyValueObservation?
 
-    init(launchUptime: TimeInterval) {
+    /// 启动各阶段相对进程起点的秒数(冒烟报告里分析冷启动用)
+    private(set) var launchMarks: [String: Double] = [:]
+
+    /// 进程创建到 main 开始执行的秒数(动态库加载等);取不到时为 nil
+    var preMainSeconds: Double? {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return nil }
+        let start = info.kp_proc.p_un.__p_starttime
+        let startMs = Double(start.tv_sec) * 1000 + Double(start.tv_usec) / 1000
+        return ((launchEpochMs - startMs) / 1000 * 1000).rounded() / 1000
+    }
+
+    func mark(_ name: String) {
+        guard launchMarks[name] == nil else { return }
+        launchMarks[name] = ((ProcessInfo.processInfo.systemUptime - launchUptime) * 1000).rounded() / 1000
+    }
+
+    let launchEpochMs: Double
+
+    init(launchUptime: TimeInterval, launchEpochMs: Double) {
         self.launchUptime = launchUptime
+        self.launchEpochMs = launchEpochMs
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--smoke-out"), i + 1 < args.count {
             smokeOut = URL(fileURLWithPath: args[i + 1], isDirectory: true)
@@ -28,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        mark("willFinishLaunching")
         recentMenu.delegate = self
         NSApp.mainMenu = MainMenu.build(recentMenu: recentMenu, windowMenu: NSMenu(title: "窗口"), helpMenu: NSMenu(title: "帮助"))
         NSApp.windowsMenu = NSApp.mainMenu?.item(withTitle: "窗口")?.submenu
@@ -36,6 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        mark("didFinishLaunching")
         launched = true
         // 命令行直接传入的文件(开发调试用):typoza <路径>
         for arg in CommandLine.arguments.dropFirst() where !arg.hasPrefix("-") && FileManager.default.fileExists(atPath: arg) {

@@ -50,6 +50,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
         guard let editorRoot = Bundle.main.resourceURL?.appendingPathComponent("editor", isDirectory: true) else {
             fatalError("应用包缺少 Resources/editor 目录")
         }
+        app.mark("windowInit")
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(TypozaSchemeHandler(appRoot: editorRoot), forURLScheme: TypozaSchemeHandler.scheme)
         config.preferences.isElementFullscreenEnabled = true
@@ -79,6 +80,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
         config.userContentController.addScriptMessageHandler(WeakBridge(self), contentWorld: .page, name: "typoza")
         if window.frameAutosaveName.isEmpty || !window.setFrameUsingName("TypozaDocumentWindow") { window.center() }
         if let open { window.title = (open.0 as NSString).lastPathComponent }
+        app.mark("webViewCreated")
         webView.load(URLRequest(url: TypozaSchemeHandler.appURL("index.html")))
     }
 
@@ -150,10 +152,12 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
 
         switch method {
         case "app.info":
+            app.mark("bridgeAppInfo")
             let open = openRequest
             openRequest = nil
             sync { ["home": NSHomeDirectory(), "version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev", "openPath": open?.0 as Any, "openIsDir": open?.1 ?? false, "dark": app.isDark] }
         case "app.ready":
+            app.mark("appReady")
             ready = true
             reply(nil, nil)
             for id in queuedCommands { emit("menu.command", ["id": id]) }
@@ -463,6 +467,18 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
         completionHandler(alert.runModal() == .alertFirstButtonReturn ? field.stringValue : nil)
     }
 
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        app.mark("navigationStarted")
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        app.mark("navigationCommitted")
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        app.mark("navigationFinished")
+    }
+
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         // 网页进程崩溃:重新载入(自动保存已落盘;未保存的新文档内容会丢失,记日志)
         NSLog("Typoza 网页进程意外退出,重新载入:%@", currentPath ?? "未命名")
@@ -478,7 +494,8 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
         let readySeconds = ProcessInfo.processInfo.systemUptime - app.launchUptime
         webView.callAsyncJavaScript("return await window.typoza.smoke()", arguments: [:], in: nil, in: .page) { [weak self] result in
             guard let self else { return }
-            var report: [String: Any] = ["readySeconds": readySeconds]
+            var report: [String: Any] = ["readySeconds": readySeconds, "launchMarks": self.app.launchMarks, "launchEpochMs": self.app.launchEpochMs]
+            if let preMain = self.app.preMainSeconds { report["preMainSeconds"] = preMain }
             switch result {
             case .success(let value): report["result"] = value
             case .failure(let error): report["error"] = "页面自检失败:\(error)"
