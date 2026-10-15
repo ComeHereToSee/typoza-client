@@ -1,0 +1,133 @@
+name: ci
+
+on:
+  push:
+    branches: [dev, main]
+  workflow_dispatch:
+
+permissions:
+  contents: write # ci/publish.sh 把日志与产物推到 ci/<job> 分支
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI_OUT: ${{ github.workspace }}/ci-out
+
+jobs:
+  editor:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: editor
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: editor/package-lock.json
+      - name: npm ci
+        run: ../ci/step.sh npm-ci npm ci
+      - name: build
+        id: build
+        run: ../ci/step.sh build npm run build
+      - uses: actions/upload-artifact@v4
+        if: steps.build.outcome == 'success'
+        with:
+          name: editor-dist
+          path: editor/dist
+          retention-days: 3
+      - name: typecheck
+        if: ${{ !cancelled() }}
+        run: ../ci/step.sh typecheck npm run typecheck
+      - name: unit
+        if: ${{ !cancelled() }}
+        run: ../ci/step.sh unit npx vitest run --reporter=verbose
+      - name: playwright install
+        if: steps.build.outcome == 'success'
+        run: ../ci/step.sh playwright-install npx playwright install --with-deps webkit
+      - name: e2e
+        if: steps.build.outcome == 'success'
+        run: ../ci/step.sh e2e npx playwright test
+      - name: publish
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p "$CI_OUT"
+          if [ -d test-results ]; then cp -R test-results "$CI_OUT/test-results"; fi
+          if [ -d dist ]; then du -ah dist | sort -h | tail -40 > "$CI_OUT/dist-sizes.txt"; fi
+          ../ci/publish.sh editor "${{ job.status }}"
+
+  helper:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: helper
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          check-latest: true
+          cache: false
+      - name: vet
+        run: ../ci/step.sh vet go vet ./...
+      - name: test
+        if: ${{ !cancelled() }}
+        run: ../ci/step.sh test go test -race -count=1 ./...
+      - name: cross build
+        id: cross
+        if: ${{ !cancelled() }}
+        run: |
+          ../ci/step.sh build-arm64 env CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_SHA::7}" -o dist/typoza-helper-darwin-arm64 ./cmd/typoza-helper
+          ../ci/step.sh build-amd64 env CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_SHA::7}" -o dist/typoza-helper-darwin-amd64 ./cmd/typoza-helper
+      - uses: actions/upload-artifact@v4
+        if: steps.cross.outcome == 'success'
+        with:
+          name: helper-darwin
+          path: helper/dist
+          retention-days: 3
+      - name: publish
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ../ci/publish.sh helper "${{ job.status }}"
+
+  macos:
+    needs: [editor, helper]
+    if: ${{ !cancelled() }}
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: editor-dist
+          path: editor/dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: helper-darwin
+          path: helper/dist
+      - name: toolchain
+        run: ci/step.sh toolchain bash -c "sw_vers; xcodebuild -version; swift --version"
+      - name: swift test
+        run: ci/step.sh swift-test bash -c "cd app && swift test"
+      - name: package
+        id: package
+        if: ${{ !cancelled() }}
+        run: ci/step.sh package scripts/build-app.sh "$RUNNER_TEMP/build"
+      - name: smoke
+        if: steps.package.outcome == 'success'
+        run: ci/step.sh smoke ci/smoke-macos.sh "$RUNNER_TEMP/build/Typoza.app" "$CI_OUT/smoke"
+      - name: dmg
+        if: steps.package.outcome == 'success'
+        run: |
+          mkdir -p "$CI_OUT/artifacts"
+          ci/step.sh dmg scripts/make-dmg.sh "$RUNNER_TEMP/build/Typoza.app" "$CI_OUT/artifacts/Typoza.dmg"
+      - name: publish
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ci/publish.sh macos "${{ job.status }}"
