@@ -1,0 +1,27 @@
+/* 偏好设置面板里的分组标题、按钮、路径选择、导出项与快捷键页(基础布局见 ui.css 的 .tz-settings / .tz-field) */
+.tz-pref-heading { margin: 10px 0 0; padding-top: 10px; border-top: 1px solid var(--tz-border); font-size: 13px; font-weight: 600; color: var(--tz-text-muted); }
+.tz-pref-btn { justify-self: start; border: 1px solid var(--tz-border); background: var(--tz-bg); color: var(--tz-text); border-radius: 5px; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 13px; white-space: nowrap; }
+.tz-pref-btn:hover { background: var(--tz-bg-hover); }
+.tz-pref-btn[disabled] { opacity: 0.4; cursor: default; }
+.tz-pref-btn.is-danger { color: #d44c47; }
+.tz-pref-path { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.tz-pref-path input { flex: 1; min-width: 0; }
+.tz-field textarea { padding: 5px 8px; border: 1px solid var(--tz-border); border-radius: 5px; background: var(--tz-bg); color: var(--tz-text); font-family: var(--tz-font-mono); font-size: 12px; max-width: 360px; resize: vertical; }
+
+.tz-export-items { display: flex; flex-direction: column; gap: 10px; }
+.tz-export-item { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--tz-border); border-radius: 8px; }
+.tz-export-item-head { display: flex; align-items: center; gap: 8px; }
+.tz-export-item-head strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tz-export-items > select { align-self: flex-start; padding: 5px 8px; border: 1px solid var(--tz-border); border-radius: 5px; background: var(--tz-bg); color: var(--tz-text); font: inherit; }
+
+.tz-keys { display: flex; flex-direction: column; gap: 10px; }
+.tz-keys-bar { display: flex; gap: 8px; }
+.tz-keys-search { flex: 1; padding: 5px 8px; border: 1px solid var(--tz-border); border-radius: 5px; background: var(--tz-bg); color: var(--tz-text); font: inherit; }
+.tz-keys-list { display: flex; flex-direction: column; }
+.tz-key-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 12px; padding: 5px 4px; border-bottom: 1px solid var(--tz-border); font-size: 13px; }
+.tz-key-btn { min-width: 96px; border: 1px solid transparent; background: var(--tz-bg-hover); color: var(--tz-text); border-radius: 5px; padding: 3px 8px; cursor: pointer; font: inherit; font-size: 12px; text-align: center; }
+.tz-key-btn:hover { border-color: var(--tz-border); }
+.tz-key-btn.is-recording { border-color: var(--tz-accent); background: var(--tz-accent-soft); }
+.tz-key-note { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; color: #d44c47; font-size: 12px; }
+
+.tz-command-output { margin: 16px 22px 22px; max-height: 60vh; overflow: auto; padding: 12px; border-radius: 6px; background: var(--tz-block-bg); font-family: var(--tz-font-mono); font-size: 12px; white-space: pre-wrap; }

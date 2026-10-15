@@ -149,8 +149,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// 偏好「所有窗口被关闭后自动退出」(PG-01,默认关);冒烟自检由自检流程自己退出
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        smokeOut == nil
+        guard smokeOut == nil else { return false }
+        do {
+            return (try settings.load()["quitOnLastWindowClosed"] as? Bool) ?? false
+        } catch {
+            NSLog("Typoza:读取偏好设置失败,关闭最后一个窗口后不退出:%@", "\(error)")
+            return false
+        }
+    }
+
+    /// 不自动退出时可能一个窗口都没有:点程序坞图标开一个新窗口
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag && windows.isEmpty { newWindow(open: nil) }
+        return true
     }
 
     // ---------- 窗口 ----------
@@ -211,6 +224,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func noteRecent(_ path: String) {
+        // 偏好「通用 ▸ 记录打开过的文件」关掉时不进最近使用列表(PF-07)
+        if (try? settings.load())?["recordRecent"] as? Bool == false { return }
         NSDocumentController.shared.noteNewRecentDocumentURL(URL(fileURLWithPath: path))
     }
 
@@ -276,15 +291,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel.message = "选择要导入的文件(需要已安装 Pandoc)"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
-            let pandoc = try ExportService.locatePandoc(configured: (try? settings.load())?["pandocPath"] as? String)
-            var target = url.deletingPathExtension().appendingPathExtension("md")
-            var i = 1
-            while FileManager.default.fileExists(atPath: target.path) {
-                target = url.deletingPathExtension().deletingLastPathComponent().appendingPathComponent("\(url.deletingPathExtension().lastPathComponent)-\(i).md")
-                i += 1
-            }
-            try ExportService.runPandoc(pandoc, arguments: [url.path, "-t", "gfm", "--wrap=none", "--extract-media=\(url.deletingLastPathComponent().appendingPathComponent("assets").path)", "-o", target.path], input: nil, workingDirectory: url.deletingLastPathComponent())
+            let target = try ExportService.importWithPandoc(url, pandocPath: (try? settings.load())?["pandocPath"] as? String)
             open(path: target.path, isDir: false, newWindow: true)
+        } catch let error as BridgeError where error.message == ExportService.pandocMissingForImport {
+            // 没装 Pandoc:与网页端导出一致,给【安装说明】(PRD 3.12)
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = error.message
+            alert.addButton(withTitle: "安装说明")
+            alert.addButton(withTitle: "好")
+            if alert.runModal() == .alertFirstButtonReturn, let install = URL(string: "https://pandoc.org/installing.html") {
+                NSWorkspace.shared.open(install)
+            }
         } catch {
             NSAlert(error: error).runModal()
         }

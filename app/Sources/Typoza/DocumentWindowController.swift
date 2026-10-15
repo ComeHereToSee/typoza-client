@@ -40,6 +40,13 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
     private(set) var draftId: String?
     /// 要求网页恢复的草稿(启动时恢复上次的未命名文档、崩溃后重载、「恢复未保存的草稿」)
     var pendingDraft: String?
+    /// 当前文档有可重复的导出(网页经 window.setState 告知;决定「使用上一次设置导出」等菜单项是否可用)
+    private var hasLastExport = false
+    /// 打印面板关闭后回复网页(网页据此恢复打印前临时换掉的主题)
+    private var printCompletion: (() -> Void)?
+    /// 进程里第一个窗口:偏好「启动时」选项只对它生效
+    private let isLaunchWindow: Bool
+    private static var windowsCreated = 0
     private lazy var watcher = FileWatcher { [weak self] paths in
         self?.emit("fs.changed", ["paths": paths])
     }
@@ -65,7 +72,9 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
         config.setURLSchemeHandler(TypozaSchemeHandler(appRoot: editorRoot), forURLScheme: TypozaSchemeHandler.scheme)
         config.preferences.isElementFullscreenEnabled = true
         config.mediaTypesRequiringUserActionForPlayback = []
-        webView = WKWebView(frame: .zero, configuration: config)
+        webView = DropWebView(frame: .zero, configuration: config)
+        isLaunchWindow = Self.windowsCreated == 0
+        Self.windowsCreated += 1
         if #available(macOS 13.3, *) { webView.isInspectable = true }
         webView.allowsMagnification = false
         webView.setValue(false, forKey: "drawsBackground")
@@ -88,6 +97,9 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
         webView.navigationDelegate = self
         webView.uiDelegate = self
         config.userContentController.addScriptMessageHandler(WeakBridge(self), contentWorld: .page, name: "typoza")
+        (webView as? DropWebView)?.onFileDrop = { [weak self] paths, point in
+            self?.emit("app.dropFiles", ["paths": paths, "x": Double(point.x), "y": Double(point.y)])
+        }
         if window.frameAutosaveName.isEmpty || !window.setFrameUsingName("TypozaDocumentWindow") { window.center() }
         if let open { window.title = (open.0 as NSString).lastPathComponent }
         app.mark("webViewCreated")
@@ -165,7 +177,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
             app.mark("bridgeAppInfo")
             let open = openRequest
             openRequest = nil
-            sync { ["home": NSHomeDirectory(), "version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev", "openPath": open?.0 as Any, "openIsDir": open?.1 ?? false, "dark": app.isDark] }
+            sync { ["home": NSHomeDirectory(), "version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev", "openPath": open?.0 as Any, "openIsDir": open?.1 ?? false, "dark": app.isDark, "launch": isLaunchWindow] }
         case "app.ready":
             app.mark("appReady")
             ready = true
@@ -193,6 +205,16 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
             }
         case "app.focusDocument":
             sync { app.focus(path: try params.string("path"), except: self) }
+        case "app.nativeCommand":
+            // 网页里的按钮执行原生菜单命令(如偏好「文件」页的「恢复未保存的草稿」),与点菜单同一条路
+            sync {
+                let id = try params.string("id")
+                guard id.hasPrefix("native.") else { throw BridgeError("只能执行原生命令:\(id)") }
+                let item = NSMenuItem()
+                item.representedObject = id
+                app.menuCommand(item)
+                return nil
+            }
 
         case "fs.readText":
             let encoding = params.optionalString("encoding")
@@ -265,6 +287,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
             window?.title = params.optionalString("title") ?? "Typoza"
             window?.representedURL = path.map { URL(fileURLWithPath: $0) }
             window?.isDocumentEdited = params.bool("edited")
+            hasLastExport = params.bool("hasLastExport")
             reply(nil, nil)
         case "window.close":
             reply(nil, nil)
@@ -392,10 +415,53 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
                 reply(nil, error?.localizedDescription)
             }
         case "export.print":
-            reply(nil, nil)
-            printDocument()
+            printDocument { reply(nil, nil) }
         case "image.upload":
-            background { try ImageUpload.run(command: try params.string("command"), paths: params.strings("paths")) }
+            background { try ImageUpload.upload(service: params.optionalString("service") ?? "custom", command: params.optionalString("command") ?? "", paths: params.strings("paths")) }
+        case "net.download":
+            background {
+                guard let url = URL(string: try params.string("url")), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { throw BridgeError("只能下载 http / https 网址") }
+                try FileDownload.fetch(url, to: try params.string("target"))
+                return nil
+            }
+        case "app.importDocument":
+            let pandocPath = (try? app.settings.load())?["pandocPath"] as? String
+            background { try ExportService.importWithPandoc(URL(fileURLWithPath: try params.string("path")), pandocPath: pandocPath).path }
+        case "system.runCommand":
+            background {
+                let result = try ShellCommand.run(try params.string("command"), cwd: params.optionalString("cwd"))
+                return ["status": Int(result.status), "output": result.output]
+            }
+        case "system.clearRecent":
+            NSDocumentController.shared.clearRecentDocuments(nil)
+            reply(nil, nil)
+        case "system.setSpellingLanguage":
+            sync {
+                let language = try params.string("language")
+                let checker = NSSpellChecker.shared
+                checker.automaticallyIdentifiesLanguages = language == "auto"
+                if language != "auto", !checker.setLanguage(language) { throw BridgeError("系统没有「\(language)」的拼写词典") }
+                return nil
+            }
+        case "menu.setKeys":
+            sync {
+                var overrides: [String: String] = [:]
+                for entry in (params.raw["overrides"] as? [[String: Any]]) ?? [] {
+                    guard let id = entry["id"] as? String, let key = entry["key"] as? String else { throw BridgeError("菜单键位参数格式错误") }
+                    overrides[id] = key
+                }
+                try MenuCustomizer.shared.applyKeys(overrides)
+                return nil
+            }
+        case "menu.setExportItems":
+            sync {
+                let items = ((params.raw["items"] as? [[String: Any]]) ?? []).compactMap { entry -> (id: String, name: String)? in
+                    guard let id = entry["id"] as? String else { return nil }
+                    return (id, entry["name"] as? String ?? "")
+                }
+                MenuCustomizer.shared.setExportItems(items)
+                return nil
+            }
 
         // 剪贴板、复制为图片、右键粘贴、嵌入检测、下载、用「预览」打开(实现见 DocumentWindowController+Media.swift)
         case "clipboard.write":
@@ -504,8 +570,12 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
         }
     }
 
-    private func printDocument() {
-        guard let window else { return }
+    /// 系统打印;纸张沿用「页面设置…」的选择。打印面板关闭后才回调(网页要等它恢复主题)。
+    private func printDocument(_ completion: @escaping () -> Void) {
+        guard let window else {
+            completion()
+            return
+        }
         let info = NSPrintInfo.shared.copy() as! NSPrintInfo
         info.topMargin = 40
         info.bottomMargin = 40
@@ -513,7 +583,20 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
         info.rightMargin = 40
         let op = webView.printOperation(with: info)
         op.view?.frame = webView.bounds
-        op.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
+        printCompletion = completion
+        op.runModal(for: window, delegate: self, didRun: #selector(printOperationDidRun(_:success:contextInfo:)), contextInfo: nil)
+    }
+
+    @objc private func printOperationDidRun(_ op: NSPrintOperation, success: Bool, contextInfo: UnsafeMutableRawPointer?) {
+        printCompletion?()
+        printCompletion = nil
+    }
+
+    // ---------- 按窗口状态启用的菜单项 ----------
+
+    @objc func windowMenuCommand(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        sendCommand(id)
     }
 
     // ---------- 窗口 ----------
@@ -650,5 +733,13 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
             exit(2)
         }
         exit(code)
+    }
+}
+
+extension DocumentWindowController: NSMenuItemValidation {
+    /// 「使用上一次设置导出」「导出并覆盖上一次导出的文件」:这篇文档没导出过时置灰(对照表 F-37)
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(windowMenuCommand(_:)) { return hasLastExport }
+        return true
     }
 }

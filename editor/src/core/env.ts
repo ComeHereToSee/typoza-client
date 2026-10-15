@@ -4,11 +4,20 @@ import type { Host } from '../host/types'
 import { type LightboxImage, openLightbox } from '../ui/lightbox'
 import { isExternalUrl, resolveLocalPath, type DocContext } from './paths'
 import { schema } from './schema'
+import { SMART_PUNCTUATION_OFF, type SmartPunctuation } from './smart-punctuation'
 
 export interface EditorSettings {
   inlineMath: boolean
-  smartPunctuation: boolean
+  smartPunctuation: SmartPunctuation
   autoPair: boolean
+  /** 匹配 Markdown 字符:敲 * _ ` ~ = 时自动补成对(偏好 PE-03) */
+  autoPairMarkdown: boolean
+  /** 编辑时显示 Markdown 标记(偏好 PE-04) */
+  showMarkdownMarkers: boolean
+  /** 复制时纯文本部分写 Markdown 源码;关掉则写不带标记的文字(偏好 PE-05) */
+  copyPlainAsMarkdown: boolean
+  /** 无选区时复制 / 剪切整行(偏好 PE-06) */
+  copyLineWithoutSelection: boolean
   codeLineNumbers: boolean
   codeLineWrap: boolean
   spellcheck: boolean
@@ -18,8 +27,12 @@ export interface EditorSettings {
 
 export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   inlineMath: true,
-  smartPunctuation: true,
+  smartPunctuation: SMART_PUNCTUATION_OFF,
   autoPair: true,
+  autoPairMarkdown: false,
+  showMarkdownMarkers: false,
+  copyPlainAsMarkdown: true,
+  copyLineWithoutSelection: false,
   codeLineNumbers: false,
   codeLineWrap: true,
   spellcheck: false,

@@ -1,7 +1,7 @@
 // Typora 扩展行内语法:==高亮==、^上标^、~下标~。
 // 在 micromark 分词层实现(仿 GFM 删除线的「定界符 + resolveAll 配对」),而不是在 mdast 上做文本替换:
 // 只有分词层能区分转义的 `\==` 与真正的定界符,文本替换会把转义字符在一次保存往返后变成格式。
-import type { Event, Extension, Resolver, State, Token, TokenizeContext, Tokenizer } from 'micromark-util-types'
+import type { ConstructRecord, Event, Extension, Resolver, State, Token, TokenizeContext, Tokenizer } from 'micromark-util-types'
 import type { CompileContext, Extension as FromMarkdownExtension, Token as MdToken } from 'mdast-util-from-markdown'
 import type { ConstructName, Handle, Options as ToMarkdownExtension, Unsafe } from 'mdast-util-to-markdown'
 import type { Parent, PhrasingContent } from 'mdast'
@@ -179,17 +179,27 @@ function delimiterConstruct(spec: DelimiterSpec) {
   return { name: spec.name, tokenize, resolveAll: resolveAllDelimiter }
 }
 
-/** micromark 扩展:三种定界语法。 */
-export function typoraInlineSyntax(): Extension {
-  const constructs = SPECS.map(delimiterConstruct)
+/** 三种语法各自的识别开关(Typora 偏好 PM-08 ~ PM-10)。 */
+export interface TyporaSyntaxFlags {
+  highlight: boolean
+  superscript: boolean
+  subscript: boolean
+}
+
+const ALL_ON: TyporaSyntaxFlags = { highlight: true, superscript: true, subscript: true }
+
+/** micromark 扩展:三种定界语法,只装开着的那几种(关掉的按普通文字解析)。 */
+export function typoraInlineSyntax(flags: TyporaSyntaxFlags = ALL_ON): Extension {
+  const enabled = SPECS.filter((s) => (s.name === 'tzMark' ? flags.highlight : s.name === 'tzSup' ? flags.superscript : flags.subscript))
+  const constructs = enabled.map(delimiterConstruct)
+  const text: ConstructRecord = {}
+  enabled.forEach((spec, i) => {
+    text[spec.code] = constructs[i]
+  })
   return {
-    text: {
-      [EQUALS]: constructs[0],
-      [CARET]: constructs[1],
-      [TILDE]: constructs[2],
-    },
+    text,
     insideSpan: { null: constructs },
-    attentionMarkers: { null: [EQUALS, CARET, TILDE] },
+    attentionMarkers: { null: enabled.map((s) => s.code) },
   }
 }
 

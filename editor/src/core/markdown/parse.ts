@@ -1,7 +1,7 @@
 // Markdown 文本 → ProseMirror 文档。
 // 顶层块记录原文切片(blockSources):ProseMirror 节点不可变,未被编辑的块在事务后仍是同一个对象,
 // 保存时直接写回原文,避免「打开再保存」把用户的写法(缩进、标记符号、空行)改掉。
-import type { List, ListItem, Nodes, PhrasingContent, Root, RootContent, Table } from 'mdast'
+import type { Blockquote, Heading, List, ListItem, Nodes, Paragraph, PhrasingContent, Root, RootContent, Table } from 'mdast'
 import { DOMParser as PMDOMParser, type Mark, type Node as PMNode } from 'prosemirror-model'
 import remarkFrontmatter from 'remark-frontmatter'
 import remarkGfm from 'remark-gfm'
@@ -10,12 +10,25 @@ import remarkParse from 'remark-parse'
 import { type Processor, unified } from 'unified'
 import { schema } from '../schema'
 import type { TzToggle } from './mdast-types'
-import { typoraInlineFromMarkdown, typoraInlineSyntax } from './syntax'
+import { type TyporaSyntaxFlags, typoraInlineFromMarkdown, typoraInlineSyntax } from './syntax'
 import { transformTree } from './transform'
 
+/** 解析选项,对应 Typora 偏好设置「Markdown」页。可选项不传时取括号里的默认值。 */
 export interface ParseOptions {
   /** 是否识别 `$…$` 行内公式(对应 Typora 偏好设置「内联公式」) */
   inlineMath: boolean
+  /** 识别 `~下标~`(PM-08,默认关:单波浪线在 GFM 里常被当删除线) */
+  subscript?: boolean
+  /** 识别 `^上标^`(PM-09,默认关) */
+  superscript?: boolean
+  /** 识别 `==高亮==`(PM-10,默认开) */
+  highlight?: boolean
+  /** 识别 GitHub 警报框 `> [!NOTE]`(PM-11,默认开);关闭时按普通引用显示 */
+  alerts?: boolean
+  /** 自动识别正文里的裸网址(PM-05,默认开);关闭时按普通文字显示 */
+  autolink?: boolean
+  /** 严格模式(PM-01,默认开);关闭时 `#标题`(# 后没有空格)也算标题 */
+  strict?: boolean
 }
 
 export interface DocMeta {
@@ -25,8 +38,8 @@ export interface DocMeta {
   leading: string
   /** 最后一个块之后的原文(通常是一个换行) */
   trailing: string
-  /** 原文最常用的无序列表符号,重写列表时沿用 */
-  bullet: '-' | '*' | '+'
+  /** 原文最常用的无序列表符号,重写列表时沿用;原文没有无序列表时为 null(改用偏好设置的符号) */
+  bullet: '-' | '*' | '+' | null
 }
 
 export interface BlockSource {
@@ -42,24 +55,24 @@ export interface ParsedDoc {
   meta: DocMeta
 }
 
-function typoraPlugin(this: Processor) {
-  const data = this.data()
-  ;(data.micromarkExtensions ??= []).push(typoraInlineSyntax())
-  ;(data.fromMarkdownExtensions ??= []).push(typoraInlineFromMarkdown())
-}
+const processors = new Map<string, Processor<Root>>()
 
-const processors = new Map<boolean, Processor<Root>>()
-
-function processorFor(inlineMath: boolean): Processor<Root> {
-  let p = processors.get(inlineMath)
+function processorFor(inlineMath: boolean, flags: TyporaSyntaxFlags): Processor<Root> {
+  const key = [inlineMath, flags.highlight, flags.superscript, flags.subscript].join('|')
+  let p = processors.get(key)
   if (!p) {
+    const typoraPlugin = function (this: Processor) {
+      const data = this.data()
+      ;(data.micromarkExtensions ??= []).push(typoraInlineSyntax(flags))
+      ;(data.fromMarkdownExtensions ??= []).push(typoraInlineFromMarkdown())
+    }
     p = unified()
       .use(remarkParse)
       .use(remarkGfm, { singleTilde: false })
       .use(remarkMath, { singleDollarTextMath: inlineMath })
       .use(remarkFrontmatter, ['yaml'])
       .use(typoraPlugin) as unknown as Processor<Root>
-    processors.set(inlineMath, p)
+    processors.set(key, p)
   }
   return p
 }
@@ -132,12 +145,25 @@ export function parseMarkdown(markdown: string, options: ParseOptions): ParsedDo
 
   // 「解析时转化 Unicode 标点」开启时按半角标记解析;替换是等长的,原文切片(blockSources)仍取未改动的 text
   const source = unicodePunctuation ? normalizeUnicodeMarkers(text) : text
-  const tree = processorFor(options.inlineMath).parse(source) as Root
+  const flags: TyporaSyntaxFlags = {
+    highlight: options.highlight ?? true,
+    superscript: options.superscript ?? false,
+    subscript: options.subscript ?? false,
+  }
+  const tree = processorFor(options.inlineMath, flags).parse(source) as Root
   lap('micromark')
+  const hiddenAlerts: Blockquote[] = []
+  if (options.alerts === false) hideAlerts(tree, hiddenAlerts)
   transformTree(tree, source)
+  for (const bq of hiddenAlerts) {
+    // 还原成普通引用,并补做被跳过的内部处理(媒体、折叠块、行内 HTML 配对……)
+    ;(bq as { type: string }).type = 'blockquote'
+    transformTree({ type: 'root', children: bq.children } as unknown as Root, source)
+  }
+  if (options.strict === false) relaxHeadings(tree, source)
   lap('transform')
 
-  const conv = new ToProseMirror(source)
+  const conv = new ToProseMirror(source, options.autolink ?? true)
   conv.collectDefinitions(tree)
 
   const blocks: PMNode[] = []
@@ -171,9 +197,59 @@ export function parseMarkdown(markdown: string, options: ParseOptions): ParsedDo
 function detectBullet(text: string): DocMeta['bullet'] {
   const counts = { '-': 0, '*': 0, '+': 0 }
   for (const m of text.matchAll(/^[ \t]*([-*+])[ \t]+\S/gm)) counts[m[1] as keyof typeof counts]++
+  if (counts['-'] + counts['*'] + counts['+'] === 0) return null
   if (counts['*'] > counts['-'] && counts['*'] >= counts['+']) return '*'
   if (counts['+'] > counts['-'] && counts['+'] > counts['*']) return '+'
   return '-'
+}
+
+const ALERT_START = /^\[![A-Za-z]+\]/
+
+/**
+ * 关闭「GitHub 风格警报框」时:先把形如 `> [!NOTE]` 的引用改个类型藏起来,transform 就不会把它们变成提示块;
+ * 处理完由调用方还原成普通引用。按先父后子的顺序收集,还原时父级先处理。
+ */
+function hideAlerts(node: Nodes, hidden: Blockquote[]): void {
+  if (!('children' in node)) return
+  for (const child of node.children as Nodes[]) {
+    if (child.type === 'blockquote') {
+      const first = child.children[0]
+      const text = first?.type === 'paragraph' ? first.children[0] : undefined
+      if (text?.type === 'text' && ALERT_START.test(text.value)) {
+        hidden.push(child)
+        ;(child as { type: string }).type = 'tzHiddenAlert'
+      }
+    }
+    hideAlerts(child, hidden)
+  }
+}
+
+const RELAXED_HEADING = /^(#{1,6})(?=[^#\s])/
+
+/** 非严格模式(Typora PM-01 关闭):单行段落以 `#标题`(# 后不带空格)开头时当作标题。 */
+function relaxHeadings(node: Nodes, source: string): void {
+  if (!('children' in node)) return
+  const children = node.children as Nodes[]
+  children.forEach((child, i) => {
+    if (child.type === 'paragraph') {
+      const heading = relaxedHeading(child, source)
+      if (heading) children[i] = heading
+      return
+    }
+    relaxHeadings(child, source)
+  })
+}
+
+function relaxedHeading(p: Paragraph, source: string): Heading | null {
+  const first = p.children[0]
+  if (first?.type !== 'text') return null
+  const start = p.position?.start.offset
+  const end = p.position?.end.offset
+  if (start === undefined || end === undefined || source.slice(start, end).includes('\n')) return null
+  const m = RELAXED_HEADING.exec(first.value)
+  if (!m) return null
+  const rest = first.value.slice(m[1].length)
+  return { type: 'heading', depth: m[1].length as Heading['depth'], children: [{ ...first, value: rest }, ...p.children.slice(1)], position: p.position }
 }
 
 interface Definition {
@@ -184,7 +260,11 @@ interface Definition {
 class ToProseMirror {
   private readonly defs = new Map<string, Definition>()
 
-  constructor(private readonly source: string) {}
+  constructor(
+    private readonly source: string,
+    /** 识别裸网址(PM-05);关闭时 GFM 识别出的裸网址按原文文字处理 */
+    private readonly autolink: boolean,
+  ) {}
 
   collectDefinitions(root: Root): void {
     const walk = (node: Nodes) => {
@@ -346,6 +426,10 @@ class ToProseMirror {
         case 'link': {
           const raw = this.slice(node)
           const autolink = raw !== '' && !raw.startsWith('[') && !raw.startsWith('<')
+          if (autolink && !this.autolink) {
+            out.push(...this.text(raw, marks))
+            break
+          }
           const mark = s.marks.link.create({ href: node.url, title: node.title ?? null, autolink })
           out.push(...this.inlines(node.children, add(mark)))
           break

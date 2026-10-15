@@ -1,8 +1,10 @@
-/* 内置主题:以 data-theme 切换。Typoza 默认(Notion 风格)写在 base / editor 里。 */
+/* 内置主题(PRD 3.11):Github(默认)、Gothic、Newsprint、Night、Pixyll、Whitey,以 data-theme 切换。
+   布局与界面配色写在 base / editor 里;主题只改正文排版。「使用主题的字体大小」时各主题的 --tz-font-size 生效。 */
 
-/* GitHub */
+/* Github */
 :root[data-theme='github'] {
   --tz-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, 'PingFang SC', sans-serif;
+  --tz-font-size: 16px;
   --tz-text: #1f2328;
   --tz-code-text: #1f2328;
   --tz-block-bg: #f6f8fa;
@@ -12,9 +14,24 @@
 :root[data-theme='github'] .tz-editor a { color: var(--tz-accent); text-decoration: none; }
 :root[data-theme='github'] .tz-editor blockquote { color: #59636e; border-left: 4px solid #d1d9e0; }
 
+/* Gothic:几何无衬线,细字重,大标题 */
+:root[data-theme='gothic'] {
+  --tz-font-sans: 'Avenir Next', Avenir, Futura, 'Century Gothic', 'Helvetica Neue', 'PingFang SC', sans-serif;
+  --tz-font-size: 16px;
+  --tz-text: #333;
+  --tz-code-text: #6a3e3e;
+  --tz-block-bg: #f5f5f5;
+  --tz-accent: #2a6db0;
+}
+:root[data-theme='gothic'] .tz-editor { font-weight: 400; letter-spacing: 0.01em; }
+:root[data-theme='gothic'] .tz-editor h1, :root[data-theme='gothic'] .tz-editor h2, :root[data-theme='gothic'] .tz-editor h3 { font-weight: 300; letter-spacing: 0.02em; }
+:root[data-theme='gothic'] .tz-editor h1 { font-size: 2.4em; }
+:root[data-theme='gothic'] .tz-editor blockquote { border-left: 2px solid #ccc; color: #777; }
+
 /* Newsprint:报纸风格衬线 */
 :root[data-theme='newsprint'] {
   --tz-font-sans: 'PT Serif', 'Times New Roman', 'Songti SC', serif;
+  --tz-font-size: 17px;
   --tz-text: #333;
   --tz-bg: #f3f2ee;
   --tz-bg-side: #ebe9e3;
@@ -23,8 +40,9 @@
 }
 :root[data-theme='newsprint'] .tz-editor h1, :root[data-theme='newsprint'] .tz-editor h2 { font-weight: 400; text-transform: none; }
 
-/* Night:深色 */
+/* Night:深色(同时带 tz-dark,界面跟着变深) */
 :root[data-theme='night'] {
+  --tz-font-size: 16px;
   --tz-text: #b8bfc6;
   --tz-bg: #363b40;
   --tz-bg-side: #2e3033;
@@ -35,14 +53,47 @@
 }
 :root[data-theme='night'] .tz-editor h1, :root[data-theme='night'] .tz-editor h2, :root[data-theme='night'] .tz-editor h3 { color: #dedede; }
 
+/* Pixyll:衬线正文、无衬线粗标题、宽行距 */
+:root[data-theme='pixyll'] {
+  --tz-font-sans: Merriweather, Georgia, 'Songti SC', serif;
+  --tz-font-size: 18px;
+  --tz-text: #333;
+  --tz-code-text: #333;
+  --tz-block-bg: #f7f7f7;
+  --tz-accent: #333;
+}
+:root[data-theme='pixyll'] .tz-editor { line-height: 1.75; }
+:root[data-theme='pixyll'] .tz-editor h1, :root[data-theme='pixyll'] .tz-editor h2, :root[data-theme='pixyll'] .tz-editor h3,
+:root[data-theme='pixyll'] .tz-editor h4, :root[data-theme='pixyll'] .tz-editor h5, :root[data-theme='pixyll'] .tz-editor h6 {
+  font-family: Lato, 'Helvetica Neue', Helvetica, 'PingFang SC', sans-serif;
+  font-weight: 900;
+}
+:root[data-theme='pixyll'] .tz-editor a { color: inherit; text-decoration: underline; }
+:root[data-theme='pixyll'] .tz-editor blockquote { border-left: 4px solid #ddd; font-style: italic; }
+
 /* Whitey:极简留白 */
 :root[data-theme='whitey'] {
   --tz-font-sans: 'Vollkorn', Palatino, 'Times New Roman', 'Songti SC', serif;
+  --tz-font-size: 17px;
   --tz-text: #000;
   --tz-page-width: 680px;
   --tz-code-text: #333;
 }
 :root[data-theme='whitey'] .tz-editor { line-height: 1.9; }
+
+/* 智能标点「渲染时转换」:原字符透明但保留宽度与光标位置,伪元素画出替换后的字符 */
+.tz-smart { position: relative; -webkit-text-fill-color: transparent; }
+.tz-smart::after { content: attr(data-smart); position: absolute; left: 0; top: 0; -webkit-text-fill-color: currentColor; pointer-events: none; }
+
+/* 编辑时显示 Markdown 标记(偏好 PE-04) */
+.tz-md-marker { color: var(--tz-text-faint); font-family: var(--tz-font-mono); font-size: 0.85em; font-weight: normal; font-style: normal; user-select: none; }
+
+/* 公式自动编号「不启用」:隐藏 KaTeX 给 equation 等环境自动加的编号(\tag 不受影响) */
+:root[data-math-numbering='none'] .katex .eqn-num { display: none; }
+
+/* 状态栏字数:关闭「总是显示字数统计」时鼠标移到状态栏才显示(PA-04) */
+.tz-statusbar.is-words-hover .tz-status-words { opacity: 0; transition: opacity 0.15s; }
+.tz-statusbar.is-words-hover:hover .tz-status-words { opacity: 1; }
 
 /* 导出的独立 HTML */
 body.tz-export { overflow: auto; height: auto; }

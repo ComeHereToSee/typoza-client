@@ -86,6 +86,8 @@ export function tocRefreshPlugin(): Plugin {
 export interface ViewModes {
   focus: boolean
   typewriter: boolean
+  /** 打字机模式始终居中(含鼠标点选、方向键);false 时只在输入文字时居中(偏好 PE-09) */
+  typewriterAlways: boolean
 }
 
 export const viewModesKey = new PluginKey<ViewModes>('tz-view-modes')
@@ -98,7 +100,7 @@ export function viewModesPlugin(): Plugin<ViewModes> {
   return new Plugin<ViewModes>({
     key: viewModesKey,
     state: {
-      init: () => ({ focus: false, typewriter: false }),
+      init: () => ({ focus: false, typewriter: false, typewriterAlways: true }),
       apply: (tr, prev) => {
         const meta = tr.getMeta(viewModesKey) as Partial<ViewModes> | undefined
         return meta ? { ...prev, ...meta } : prev
@@ -129,6 +131,7 @@ export function viewModesPlugin(): Plugin<ViewModes> {
         // 打字机模式:光标所在行保持在可视区域中部
         const modes = viewModesKey.getState(view.state)
         if (!modes?.typewriter || view.state.selection.eq(prev.selection)) return
+        if (!modes.typewriterAlways && view.state.doc === prev.doc) return
         const scroller = view.dom.closest('.tz-scroll') as HTMLElement | null
         if (!scroller) return
         const caret = view.coordsAtPos(view.state.selection.head)

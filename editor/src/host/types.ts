@@ -86,6 +86,8 @@ export type ExportFormat =
   | 'rst'
   | 'textile'
   | 'opml'
+  /** 用户添加的 Pandoc 导出项:目标格式等放在 options 里 */
+  | 'pandoc'
 
 export type EmbedCheck = 'ok' | 'refused' | 'unreachable'
 
@@ -101,6 +103,8 @@ export interface WindowState {
   path: string | null
   title: string
   edited: boolean
+  /** 当前文档有可重复的导出(菜单「使用上一次设置导出」等是否可用) */
+  hasLastExport?: boolean
 }
 
 export interface HostEvents {
@@ -116,6 +120,8 @@ export interface HostEvents {
   'app.appearance': { dark: boolean }
   /** 云同步通知(外壳转发辅助进程的 sync.status / sync.event) */
   'sync.event': { method: string; params: unknown }
+  /** 从 Finder 拖进窗口的文件(外壳截下拖放,带真实路径;x、y 为网页视口坐标) */
+  'app.dropFiles': { paths: string[]; x: number; y: number }
 }
 
 /** 云同步调用失败:code 是辅助进程给的错误码(如 totp_required、session_lost),message 可直接展示。 */
@@ -131,6 +137,8 @@ export class SyncError extends Error {
 
 export interface Host {
   readonly platform: 'macos' | 'browser'
+  /** 应用启动时建的第一个窗口(偏好「启动时」选项只对它生效) */
+  readonly isLaunchWindow: boolean
 
   /** 本机文件在网页里可加载的地址(typoza://local/…) */
   resourceURL(absPath: string): string
@@ -158,7 +166,8 @@ export interface Host {
   // 窗口与系统
   setWindowState(state: WindowState): void
   openDialog(options: { directory?: boolean; multiple?: boolean; extensions?: string[] }): Promise<string[] | null>
-  saveDialog(options: { defaultName: string; extensions?: string[] }): Promise<string | null>
+  /** directory:初始文件夹;不给时用当前文档所在文件夹 */
+  saveDialog(options: { defaultName: string; extensions?: string[]; directory?: string }): Promise<string | null>
   confirm(options: ConfirmOptions): Promise<number>
   revealInFinder(path: string): Promise<void>
   openExternal(url: string): Promise<void>
@@ -194,10 +203,30 @@ export interface Host {
   draftPending(): Promise<DraftRestore | null>
 
   // 导出与打印
-  exportDocument(options: { format: ExportFormat; html: string; markdown: string; sourcePath: string | null; target: string }): Promise<void>
+  /** options:各格式参数(PDF 纸张与页首页尾、图片宽度、Pandoc 参数……),键见 ExportService.swift */
+  exportDocument(options: { format: ExportFormat; html: string; markdown: string; sourcePath: string | null; target: string; options?: Record<string, unknown> }): Promise<void>
+  /** 系统打印;打印面板关闭后才返回 */
   print(): Promise<void>
-  /** 执行用户配置的图片上传命令,返回上传后的网址 */
-  uploadImages(command: string, paths: string[]): Promise<string[]>
+  /** 用偏好设置的上传服务(uPic、PicGo……或自定义命令)上传图片,返回网址(顺序与 paths 一致) */
+  uploadImages(options: { service: string; command: string }, paths: string[]): Promise<string[]>
+  /** 下载网络文件到本机路径(插入网络图片时按规则落盘) */
+  downloadFile(url: string, target: string): Promise<void>
+  /** 经 Pandoc 把 docx 等导入成 Markdown,返回生成的文件路径 */
+  importDocument(path: string): Promise<string>
+  /** 在 shell 里执行用户配置的命令(导出后动作、自定义命令导出),返回退出码与输出 */
+  runCommand(command: string, cwd: string | null): Promise<{ status: number; output: string }>
+
+  // 系统集成
+  /** 清除「打开最近使用」记录 */
+  clearRecentDocuments(): Promise<void>
+  /** 拼写检查语言:auto = 自动检测 */
+  setSpellingLanguage(language: string): Promise<void>
+  /** 原生菜单键位:列出的命令改用给定键位(空串 = 无键位),其余恢复出厂键位 */
+  setMenuKeys(overrides: { id: string; key: string }[]): Promise<void>
+  /** 文件 ▸ 导出 菜单末尾的用户导出项(点选时发 file.export.item.<id> 命令) */
+  setExportItems(items: { id: string; name: string }[]): Promise<void>
+  /** 执行外壳的原生菜单命令(native.*,如 native.recoverDrafts),网页里的按钮与菜单走同一条路 */
+  runNativeCommand(id: string): Promise<void>
 
   /** 云同步:调用辅助进程的 sync.* 方法;失败抛 SyncError */
   syncCall<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T>

@@ -33,6 +33,8 @@ export interface ImageCommandContext {
   toast(message: string, error?: boolean): void
   /** 按「插入图片时」规则落盘(与粘贴、拖入一致),返回写进文档的地址 */
   importFile(file: ImportFile): Promise<{ src: string }>
+  /** 按偏好的上传服务上传(首次会确认);用户取消返回 null */
+  upload(paths: string[]): Promise<string[] | null>
   setFrontMatter(key: string, value: string | null): void
   /** 打开偏好设置的某一页 */
   openPreferences(page: string): void
@@ -89,10 +91,14 @@ function requireImage(ctx: ImageCommandContext, view: EditorView): ImageRef | nu
   return ref
 }
 
-function uploadCommand(ctx: ImageCommandContext): string | null {
-  const command = ctx.settings().imageUploadCommand.trim()
-  if (!command) ctx.toast('还没有设置图片上传命令:请在偏好设置「图像」页填写', true)
-  return command || null
+/** 自定义上传命令没填时提示并返回 false(批量上传前先查,免得每张都报同一个错)。 */
+function uploadReady(ctx: ImageCommandContext): boolean {
+  const { imageUploadService: service, imageUploadCommand: command } = ctx.settings()
+  if (service === 'custom' && !command.trim()) {
+    ctx.toast('还没有设置图片上传命令:请在偏好设置「图像」页填写', true)
+    return false
+  }
+  return true
 }
 
 /** 把一张图片放进文件夹:本机图片复制或移动,网络图片下载。返回新文件的绝对路径;本来就在该文件夹里时原样返回。 */
@@ -236,9 +242,10 @@ export function registerImageCommands(ctx: ImageCommandContext): void {
       ctx.toast('这张图片已经是网络图片')
       return
     }
-    const command = uploadCommand(ctx)
-    if (!command) return
-    const [url] = await ctx.host.uploadImages(command, [local])
+    if (!uploadReady(ctx)) return
+    const urls = await ctx.upload([local])
+    if (!urls) return
+    const [url] = urls
     if (!url) throw new Error('上传命令没有返回网址')
     const pos = locateNode(view.state.doc, ref.node)
     if (pos !== null) setImageAttrs(view, pos, { src: url })
@@ -293,13 +300,15 @@ export function registerImageCommands(ctx: ImageCommandContext): void {
       ctx.toast('文档未包含本地图片。')
       return
     }
-    const command = uploadCommand(ctx)
-    if (!command) return
+    if (!uploadReady(ctx)) return
     const map = new Map<string, string>()
     let failed = 0
     for (const [src, path] of locals) {
       try {
-        const [url] = await ctx.host.uploadImages(command, [path])
+        const urls = await ctx.upload([path])
+        // 用户在首次上传确认里取消:一张都没传,直接结束
+        if (!urls) return
+        const [url] = urls
         if (!url) throw new Error('上传命令没有返回网址')
         map.set(src, url)
       } catch (err) {

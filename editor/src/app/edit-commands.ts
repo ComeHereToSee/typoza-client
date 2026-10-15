@@ -3,39 +3,12 @@
 // 解析时转化 Unicode 标点、转换大小写、插入 HTML 块。
 import { TextSelection } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
-import { setUnicodePunctuation } from '../core/markdown/parse'
-import { registerCommand, runCommand } from '../core/registry'
+import { registerCommand } from '../core/registry'
 import type { Host } from '../host/types'
-import { type DisplayOptions, currentDisplayOptions, setDisplayOptions } from '../plugins/display'
 import { insertPlainText } from '../plugins/paste'
 import { insertHtmlBlock } from '../views/blocks'
 import type { DocumentSession } from './document'
 import type { AppSettings } from './settings'
-
-/** 这里新增的偏好键与默认值(偏好面板接入前直接存进同一份设置;读不到时用默认值)。 */
-export const EDIT_SETTING_DEFAULTS = {
-  firstLineIndent: false,
-  showBrTag: false,
-  preserveSingleNewline: true,
-  unicodePunctuation: false,
-}
-
-type EditSettingKey = keyof typeof EDIT_SETTING_DEFAULTS
-type EditSettings = Record<EditSettingKey, boolean>
-
-let stored: EditSettings = { ...EDIT_SETTING_DEFAULTS }
-
-/** 启动时读一次(要在打开第一个文档之前:「解析时转化 Unicode 标点」影响解析)。 */
-export async function loadEditSettings(host: Host): Promise<void> {
-  const all = await host.getSettings()
-  const next = { ...EDIT_SETTING_DEFAULTS }
-  for (const key of Object.keys(EDIT_SETTING_DEFAULTS) as EditSettingKey[]) {
-    if (typeof all[key] === 'boolean') next[key] = all[key] as boolean
-  }
-  stored = next
-  setUnicodePunctuation(stored.unicodePunctuation)
-  setDisplayOptions({ firstLineIndent: stored.firstLineIndent, showBrTag: stored.showBrTag, preserveSingleNewline: stored.preserveSingleNewline })
-}
 
 export interface EditCommandContext {
   host: Host
@@ -102,10 +75,6 @@ export function registerEditCommands(ctx: EditCommandContext): void {
         return true
       },
     })
-  const save = (patch: Partial<EditSettings>) => {
-    stored = { ...stored, ...patch }
-    return ctx.host.setSettings(patch)
-  }
   const onOff = (on: boolean) => (on ? '已开启' : '已关闭')
 
   cmd('edit.copySimplified', '复制内容并简化格式', async (view) => {
@@ -140,32 +109,22 @@ export function registerEditCommands(ctx: EditCommandContext): void {
     ctx.toast(`保存时在文末添加空行:${onOff(on)}`)
   })
 
-  // E-28 ~ E-30:只影响显示
-  const display = (id: string, label: string, key: keyof DisplayOptions) =>
-    cmd(id, label, async (view) => {
-      const options = currentDisplayOptions()
-      options[key] = !options[key]
-      setDisplayOptions(options, view)
-      const patch: Partial<EditSettings> = {}
-      patch[key] = options[key]
-      await save(patch)
-      ctx.toast(`${label}:${onOff(options[key])}`)
+  // E-28 ~ E-30:只影响显示;与偏好「Markdown」页同一组设置,显示插件由 prefs-apply 统一刷新
+  const display = (id: string, label: string, key: 'firstLineIndent' | 'showBrTag' | 'preserveSingleNewline') =>
+    cmd(id, label, async () => {
+      const on = !ctx.settings()[key]
+      await ctx.updateSettings({ [key]: on })
+      ctx.toast(`${label}:${onOff(on)}`)
     })
   display('view.firstLineIndent', '首行缩进', 'firstLineIndent')
   display('view.showBrTag', '显示 <br/>', 'showBrTag')
   display('edit.preserveSingleNewline', '保留单换行符', 'preserveSingleNewline')
 
-  // E-36:只影响解析;文档没有未保存的修改时立即按新规则重新打开
-  cmd('edit.unicodePunctuation', '解析时转化 Unicode 标点', async (view) => {
-    const on = !stored.unicodePunctuation
-    setUnicodePunctuation(on)
-    await save({ unicodePunctuation: on })
-    if (ctx.session.path && !ctx.session.dirty) {
-      runCommand(view, 'file.reload')
-      ctx.toast(`解析时转化 Unicode 标点:${onOff(on)}`)
-    } else {
-      ctx.toast(`解析时转化 Unicode 标点:${onOff(on)},重新打开文档后生效`)
-    }
+  // E-36:只影响解析;改设置后 prefs-apply 按新规则重新解析当前文档(文件内容不变)
+  cmd('edit.unicodePunctuation', '解析时转化 Unicode 标点', async () => {
+    const on = !ctx.settings().unicodePunctuation
+    await ctx.updateSettings({ unicodePunctuation: on })
+    ctx.toast(`解析时转化 Unicode 标点:${onOff(on)}`)
   })
 
   cmd('text.uppercase', '转换为大写', (view) => applyCase(view, 'upper'))

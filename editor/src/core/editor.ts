@@ -8,12 +8,15 @@ import { type Command, EditorState, type Plugin, type Transaction } from 'prosem
 import { tableEditing } from 'prosemirror-tables'
 import { EditorView } from 'prosemirror-view'
 import { autoPairPlugin, editingPlugin, placeholderPlugin, tocRefreshPlugin, viewModesPlugin } from '../plugins/basics'
+import { copyLinePlugin, markdownPairsPlugin } from '../plugins/editing-prefs'
 import { emojiShortcodePlugin } from '../plugins/emoji-shortcodes'
 import { findPlugin } from '../plugins/find'
 import { blockHandlePlugin } from '../plugins/handle'
 import { pastePlugin } from '../plugins/paste'
 import { slashPlugin } from '../plugins/slash'
 import { suggestPlugin } from '../plugins/suggest'
+import { markdownMarkersPlugin } from '../plugins/markers'
+import { smartPunctuationRenderPlugin } from '../plugins/smart-punctuation'
 import { TABLE_KEYS, tableToolbarPlugin } from '../plugins/table'
 import { toolbarPlugin } from '../plugins/toolbar'
 import { contextMenuPlugin } from '../plugins/contextmenu'
@@ -120,8 +123,11 @@ export function buildPlugins(env: EditorEnv): Plugin[] {
     slashPlugin(env),
     suggestPlugin(env),
     pastePlugin(env),
+    copyLinePlugin(env),
     toolbarPlugin(env),
     findPlugin(),
+    // 匹配 Markdown 字符要先于输入规则处理收尾符号
+    markdownPairsPlugin(env),
     // 右键菜单(打开时接管方向键与回车)、媒体选中时的空格 / ⌘↩、「空格与换行」显示选项
     contextMenuPlugin(env),
     mediaKeysPlugin(env),
@@ -138,6 +144,8 @@ export function buildPlugins(env: EditorEnv): Plugin[] {
     placeholderPlugin(),
     emojiShortcodePlugin(),
     editingPlugin(),
+    markdownMarkersPlugin(env),
+    smartPunctuationRenderPlugin(env),
     tocRefreshPlugin(),
     viewModesPlugin(),
     blockHandlePlugin(),
@@ -175,7 +183,9 @@ export function createEditorView(mount: HTMLElement, state: EditorState, env: Ed
       footnote_ref: (node, v) => new FootnoteRefView(node, v),
       wikilink: (node) => new WikiLinkView(node, env),
     },
-    clipboardTextSerializer: (slice) => sliceToMarkdown(slice.content, env),
+    // 偏好 PE-05:纯文本剪贴板写 Markdown 源码,或只写文字
+    clipboardTextSerializer: (slice) =>
+      env.settings.copyPlainAsMarkdown ? sliceToMarkdown(slice.content, env) : slice.content.textBetween(0, slice.content.size, '\n\n'),
     dispatchTransaction(tr) {
       const next = view.state.apply(tr)
       view.updateState(next)

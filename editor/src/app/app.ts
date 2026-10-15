@@ -10,7 +10,7 @@ import { bundleOf, isTextBundle, TEXT_EXTENSIONS } from '../core/filetypes'
 import { scrollToAnchor } from '../core/links'
 import { parseMarkdown } from '../core/markdown/parse'
 import { basename, dirname, joinPath, markdownHref, relativePath, resolveLocalPath } from '../core/paths'
-import { registerCommand, runCommand } from '../core/registry'
+import { getCommand, registerCommand, runCommand } from '../core/registry'
 import { schema } from '../core/schema'
 import { setViewModes } from '../plugins/basics'
 import { buildPattern } from '../plugins/find'
@@ -19,19 +19,25 @@ import { h } from '../ui/dom'
 import { closeLightbox, isLightboxOpen } from '../ui/lightbox'
 import { promptInput, validateUrl } from '../ui/prompt'
 import { resetMacros } from '../views/katex'
-import { importFile } from './assets'
+import { applyAppearance as applyAppearanceSettings, bindZoomGestures, clampZoom, isDarkMode, loadThemeCss, openThemesFolder, printDocument } from './appearance'
+import { importFile, importNetworkImage, uploadImages } from './assets'
 import { DocumentSession, frontMatterInfo, updateFrontMatterText } from './document'
-import { loadEditSettings, registerEditCommands } from './edit-commands'
+import { registerEditCommands } from './edit-commands'
 import { registerImageCommands } from './images'
 import { DraftKeeper, relocateDraftAssets } from './drafts'
-import { buildExportHtml } from './exporter'
+import { handleDroppedPaths } from './drop'
+import { hasLastExport, reportPandocOrError, runExport, syncExportItems } from './export-flow'
 import { FileOps } from './fileops'
 import { formatVersionTime, showHistory } from './historypanel'
+import { parseOptionsFrom } from './markdown-prefs'
 import { type LinkTarget, type NavEntry, NavHistory, resolveLinkTarget } from './navigation'
-import { countWords, showSettings, showWordCount } from './panels'
+import { countWords, showWordCount } from './panels'
+import { showPreferences } from './preferences'
+import { applyEditorPrefs, editorSettingsFrom, initEditorPrefs, syncMenuKeys, syncSpelling } from './prefs-apply'
 import { SyncController } from './sync'
 import { showQuickOpen } from './quickopen'
-import { type AppSettings, loadSettings } from './settings'
+import { type AppSettings, BUILTIN_THEMES, loadSettings, newFileExtension } from './settings'
+import { appKeyTable, BROWSER_ALIASES, keyName } from './shortcuts'
 import { type SearchFlags, Sidebar, type SidebarTab, showOutlinePopover } from './sidebar'
 import { SourceEditor } from './source'
 import { docPosToSource, sourceToDocPos } from './sourcemap'
@@ -129,7 +135,7 @@ export class App {
 
   async init(): Promise<void> {
     this.settings = await loadSettings(this.host)
-    await loadEditSettings(this.host)
+    initEditorPrefs(this.settings)
     this.syncEditorSettings()
     this.sidebar = new Sidebar(this.host, {
       openFile: (path, where) => void this.openFile(path, { where }),
@@ -149,6 +155,10 @@ export class App {
     this.bindHostEvents()
     this.sync.bind()
     this.bindBrowserKeys()
+    bindZoomGestures(
+      () => this.settings,
+      (zoom) => void this.updateSettings({ zoom }),
+    )
 
     const doc = this.session.createEmpty()
     this.view = createEditorView(this.els.editor, createEditorState(doc, this.env), this.env, {
@@ -156,7 +166,11 @@ export class App {
       onUpdate: (v) => this.onEditorUpdate(v),
     })
     this.applyViewModes()
-    void this.sidebar.setTab(this.settings.sidebarTab)
+    // 偏好「默认显示大纲视图」(PA-06)
+    void this.sidebar.setTab(this.settings.outlineByDefault ? 'outline' : this.settings.sidebarTab)
+    this.syncExportItems()
+    if (Object.keys(this.settings.keybindings).length) syncMenuKeys(this.host, this.settings)
+    syncSpelling(this.host, this.settings)
 
     // 重启或网页进程崩溃后,外壳要求本窗口恢复的未命名草稿(PRD 3.1)
     const draft = await this.host.draftPending()
@@ -165,6 +179,8 @@ export class App {
     if (openPath) {
       if (this.options.openIsDir && !isTextBundle(openPath)) this.sidebar.setRoot(openPath)
       else await this.openFile(openPath, draft ? { where: 'tab' } : { replace: true })
+    } else if (!draft && this.host.isLaunchWindow) {
+      await this.restoreStartup()
     }
     this.updateWindowState()
     this.renderStatus()
@@ -174,55 +190,61 @@ export class App {
   // ---------- 设置与外观 ----------
 
   private syncEditorSettings(): void {
-    const s = this.settings
-    Object.assign(this.env.settings, {
-      inlineMath: s.inlineMath,
-      smartPunctuation: s.smartPunctuation,
-      autoPair: s.autoPair,
-      codeLineNumbers: s.codeLineNumbers,
-      codeLineWrap: s.codeLineWrap,
-      spellcheck: s.spellcheck,
-      keybindings: s.keybindings,
-    })
+    Object.assign(this.env.settings, editorSettingsFrom(this.settings))
   }
 
   async updateSettings(patch: Partial<AppSettings>): Promise<void> {
-    const rebuild = ['smartPunctuation', 'keybindings', 'inlineMath', 'codeLineNumbers', 'codeLineWrap'].some((k) => k in patch)
     Object.assign(this.settings, patch)
     this.syncEditorSettings()
     await this.host.setSettings(patch as Record<string, unknown>)
     this.applyAppearance()
+    // 输入规则、快捷键、识别规则等是建编辑器状态时定的,改了要重建或重新解析(保留文档与选区);之后再恢复专注 / 打字机状态
+    if (this.view) applyEditorPrefs({ view: this.view, env: this.env, session: this.session, host: this.host }, this.settings, patch)
     this.applyViewModes()
-    // 输入规则、快捷键、代码块配置是建编辑器时定的,改了要重建状态(保留文档与选区)
-    if (rebuild && this.view) {
-      const { doc, selection } = this.view.state
-      const state = createEditorState(doc, this.env)
-      this.view.updateState(state.apply(state.tr.setSelection(TextSelection.create(state.doc, Math.min(selection.from, doc.content.size)))))
-    }
+    if ('exportItems' in patch) this.syncExportItems()
+    if ('exportHistory' in patch) this.updateWindowState()
     this.renderStatus()
-  }
-
-  private isDark(): boolean {
-    return this.settings.appearance === 'dark' || (this.settings.appearance === 'system' && this.systemDark) || this.settings.theme === 'night'
   }
 
   private applyAppearance(): void {
     const s = this.settings
-    const root = document.documentElement
-    root.classList.toggle('tz-dark', this.isDark())
-    root.dataset.theme = s.theme
-    root.dataset.font = s.fontFamily
-    root.dataset.width = s.pageWidth
-    root.style.setProperty('--tz-font-size', `${s.fontSize}px`)
-    root.style.setProperty('--tz-zoom', String(s.zoom))
+    applyAppearanceSettings(this.host, s, this.systemDark, (message) => this.toast(message, true))
     this.els.status.hidden = !s.showStatusBar
+    this.els.status.classList.toggle('is-words-hover', !s.alwaysShowWordCount)
     this.sidebar?.el.toggleAttribute('hidden', !s.sidebarVisible)
     this.els.app.style.setProperty('--tz-sidebar-width', `${s.sidebarWidth}px`)
   }
 
   private applyViewModes(): void {
     if (!this.view) return
-    setViewModes(this.view, { focus: this.settings.focusMode, typewriter: this.settings.typewriterMode })
+    setViewModes(this.view, { focus: this.settings.focusMode, typewriter: this.settings.typewriterMode, typewriterAlways: this.settings.typewriterAlways })
+  }
+
+  /** 主题菜单里选主题:深色模式下改「深色模式主题」,否则改主题;再点同一个主题会重读它的 CSS(改了主题文件后用)。 */
+  private async setTheme(id: string): Promise<void> {
+    await this.updateSettings(isDarkMode(this.settings, this.systemDark) ? { darkTheme: id } : { theme: id })
+    await loadThemeCss(this.host, id, true).catch((err: unknown) => this.toast(err instanceof Error ? err.message : String(err), true))
+  }
+
+  /** 启动选项(PF-01):应用启动的第一个窗口按偏好打开上次的文件与目录,或指定目录。 */
+  private async restoreStartup(): Promise<void> {
+    const s = this.settings
+    const folder = s.startupAction === 'customFolder' ? s.startupFolder : s.startupAction === 'newFile' ? '' : s.lastFolder
+    if (folder && (await this.host.stat(folder))?.isDir) this.sidebar.setRoot(folder)
+    if (s.startupAction === 'lastFilesAndFolder' && s.lastFile && (await this.host.stat(s.lastFile))) await this.openFile(s.lastFile, { replace: true })
+  }
+
+  /** 记下上次使用的文件与目录(启动选项用);关了「记录历史文件和文件夹」(PF-07)就不记。 */
+  private rememberLocation(): void {
+    const s = this.settings
+    if (!s.recordRecent) return
+    const lastFile = this.session.path ?? s.lastFile
+    const lastFolder = this.sidebar.rootFolder ?? s.lastFolder
+    if (lastFile !== s.lastFile || lastFolder !== s.lastFolder) void this.updateSettings({ lastFile, lastFolder })
+  }
+
+  private syncExportItems(): void {
+    syncExportItems(this.host, this.settings.exportItems, (formatId) => void this.exportAs(formatId))
   }
 
   private resizer(): HTMLElement {
@@ -258,7 +280,7 @@ export class App {
     this.els.scroll.scrollTop = 0
     if (this.session.path) {
       void this.host.watch([this.session.path])
-      this.recent = [this.session.path, ...this.recent.filter((p) => p !== this.session.path)].slice(0, 20)
+      if (this.settings.recordRecent) this.recent = [this.session.path, ...this.recent.filter((p) => p !== this.session.path)].slice(0, 20)
     }
     this.sidebar.markCurrent()
     this.updateWindowState()
@@ -369,7 +391,7 @@ export class App {
   private currentDoc(): PMNode {
     if (!this.source) return this.view.state.doc
     // 源码模式下以源码为准;源码编辑器内部一律用 \n,写回时沿用文件原来的换行符
-    const parsed = parseMarkdown(this.source.text, { inlineMath: this.settings.inlineMath })
+    const parsed = parseMarkdown(this.source.text, parseOptionsFrom(this.settings))
     this.session.meta = { ...parsed.meta, lineEnding: this.session.meta.lineEnding }
     return parsed.doc
   }
@@ -413,8 +435,10 @@ export class App {
   async saveAs(): Promise<boolean> {
     const wasUntitled = !this.session.path
     const shown = this.session.path ? (bundleOf(this.session.path) ?? this.session.path) : null
-    const defaultName = shown ? basename(shown) : `${this.firstHeadingText() || '未命名'}.md`
-    const chosen = await this.host.saveDialog({ defaultName, extensions: ['md', 'markdown', 'txt', 'textbundle'] })
+    // 新文件扩展名按偏好(PF-03)
+    const ext = newFileExtension(this.settings)
+    const defaultName = shown ? basename(shown) : `${this.firstHeadingText() || '未命名'}.${ext}`
+    const chosen = await this.host.saveDialog({ defaultName, extensions: [...new Set([ext, 'md', 'markdown', 'txt', 'textbundle'])] })
     if (!chosen) return false
     const previousCtx = this.env.ctx.path
     try {
@@ -488,7 +512,8 @@ export class App {
   }
 
   private updateWindowState(): void {
-    this.host.setWindowState({ path: this.session.path, title: this.session.title, edited: this.session.dirty })
+    this.host.setWindowState({ path: this.session.path, title: this.session.title, edited: this.session.dirty, hasLastExport: hasLastExport(this.settings, this.session.path) })
+    this.rememberLocation()
   }
 
   // ---------- 页面头部:Notion 的图标与封面(存 front matter) ----------
@@ -547,7 +572,7 @@ export class App {
       return
     }
     const imported = await importFile(this.importContext(), { name: basename(paths[0]), path: paths[0] })
-    this.setFrontMatter('cover', imported.src)
+    if (imported) this.setFrontMatter('cover', imported.src)
   }
 
   private setFrontMatter(key: string, value: string | null): void {
@@ -594,10 +619,10 @@ export class App {
     // 超大文件(只读源码)不逐字统计,免得每次刷新状态栏都扫一遍
     const large = this.session.readOnly === 'large'
     const text = this.source ? (large ? '' : this.source.text) : this.view.state.doc.textBetween(0, this.view.state.doc.content.size, '\n\n', ' ')
-    const stats = countWords(text)
+    const stats = countWords(text, this.settings.readingSpeed)
     const { from, to, empty } = this.view.state.selection
-    const sel = !empty && !this.source ? countWords(this.view.state.doc.textBetween(from, to, '\n\n', ' ')) : null
-    const words = h('button', { type: 'button', class: 'tz-status-btn', title: '字数统计' }, large ? '只读源码' : sel ? `已选 ${sel.words} 字 / 共 ${stats.words} 字` : `${stats.words} 字`)
+    const sel = !empty && !this.source ? countWords(this.view.state.doc.textBetween(from, to, '\n\n', ' '), this.settings.readingSpeed) : null
+    const words = h('button', { type: 'button', class: 'tz-status-btn tz-status-words', title: '字数统计' }, large ? '只读源码' : sel ? `已选 ${sel.words} 字 / 共 ${stats.words} 字` : `${stats.words} 字`)
     words.addEventListener('click', () => runCommand(this.view, 'view.wordCount'))
     const sidebarBtn = h('button', { type: 'button', class: 'tz-status-btn', title: '显示 / 隐藏侧栏(⌃⌘S)' }, '☰')
     sidebarBtn.addEventListener('click', () => this.runAppCommand('view.toggleSidebar'))
@@ -830,6 +855,7 @@ export class App {
       settings: this.settings,
       docPath: this.session.path,
       copyImagesTo: frontMatterInfo(this.view.state.doc, this.session.path).copyImagesTo,
+      dismissWarning: (id: string) => void this.updateSettings({ dismissedWarnings: [...this.settings.dismissedWarnings, id] }),
     }
   }
 
@@ -838,6 +864,8 @@ export class App {
       const nodes: PMNode[] = []
       for (const f of files) {
         const r = await importFile(this.importContext(), f)
+        // 用户在「目录不存在」或「首次上传」的询问里取消:整批都不插
+        if (!r) return
         if (r.kind === 'image') nodes.push(schema.nodes.image.create({ src: r.src, alt: r.name.replace(/\.[^.]+$/, '') }))
         else nodes.push(schema.nodes.media.create({ kind: r.kind, src: r.src, title: r.kind === 'file' ? r.name : '' }))
       }
@@ -878,10 +906,22 @@ export class App {
     const url = await promptInput({ title: titles[kind], placeholder: 'https://', anchor: coords, validate: validateUrl })
     view.focus()
     if (!url) return
+    let src = url
+    if (kind === 'image') {
+      // 偏好「对网络位置的图片应用上述规则」(PI-02):下载到资源文件夹或转传上传服务
+      try {
+        const local = await importNetworkImage(this.importContext(), url)
+        if (local === null) return
+        src = local
+      } catch (err) {
+        this.toast(`插入失败:${err instanceof Error ? err.message : String(err)}`, true)
+        return
+      }
+    }
     const { state } = view
     const n = schema.nodes
     let node: PMNode
-    if (kind === 'image') node = n.paragraph.create(null, n.image.create({ src: url }))
+    if (kind === 'image') node = n.paragraph.create(null, n.image.create({ src }))
     else if (kind === 'embed') {
       const target = detectEmbed(url)
       node = n.media.create({ kind: target?.kind === 'embed' ? 'embed' : target && target.kind !== 'image' ? target.kind : 'embed', src: target?.src ?? url })
@@ -988,37 +1028,75 @@ export class App {
 
   // ---------- 导出 ----------
 
-  private async exportAs(format: ExportFormat): Promise<void> {
-    const extMap: Record<ExportFormat, string> = {
-      pdf: 'pdf',
-      html: 'html',
-      'html-plain': 'html',
-      image: 'png',
-      docx: 'docx',
-      odt: 'odt',
-      rtf: 'rtf',
-      epub: 'epub',
-      latex: 'tex',
-      mediawiki: 'wiki',
-      rst: 'rst',
-      textile: 'textile',
-      opml: 'opml',
-    }
-    const stem = this.session.path ? basename(this.session.path).replace(/\.[^.]+$/, '') : this.firstHeadingText() || '未命名'
+  /** 导出(流程见 export-flow.ts):formatId 为内置格式名或 item:导出项 ID;mode 为重复导出(F-37、F-38)。 */
+  private async exportAs(formatId: string, mode: 'new' | 'previous' | 'overwrite' = 'new'): Promise<void> {
     if (this.session.readOnly === 'large') {
       this.toast('文件过大,以只读源码方式打开,不能导出', true)
       return
     }
-    const target = await this.host.saveDialog({ defaultName: `${stem}.${extMap[format]}`, extensions: [extMap[format]] })
-    if (!target) return
     if (this.source) this.toggleSourceMode(false)
-    const html = buildExportHtml(this.view.dom, stem, target, format !== 'html-plain', this.isDark())
-    const markdown = this.session.serialize(this.view.state.doc)
+    const first = this.view.state.doc.firstChild
+    await runExport(
+      {
+        host: this.host,
+        settings: this.settings,
+        systemDark: this.systemDark,
+        view: this.view,
+        docPath: this.session.path,
+        markdown: this.session.serialize(this.view.state.doc),
+        fallbackName: this.firstHeadingText(),
+        frontMatter: first?.type === schema.nodes.frontmatter ? first.textContent : null,
+        update: (patch) => this.updateSettings(patch),
+        toast: (message, error) => this.toast(message, error),
+      },
+      formatId,
+      mode,
+    ).catch((err: unknown) => this.toast(`导出失败:${err instanceof Error ? err.message : String(err)}`, true))
+  }
+
+  /** 从 Finder 拖进窗口的文件(外壳给真实路径):落在编辑区按类型处理(PF-08 ~ PF-10),落在别处交给那里的界面。 */
+  private async onNativeDrop(paths: string[], x: number, y: number): Promise<void> {
+    const target = document.elementFromPoint(x, y)
+    if (!target || !this.els.main.contains(target)) {
+      target?.dispatchEvent(new CustomEvent('tz-file-drop', { bubbles: true, detail: { paths } }))
+      return
+    }
+    if (this.source) {
+      this.toast('源代码模式下不能拖入文件,请先退出源代码模式', true)
+      return
+    }
+    const at = this.view.posAtCoords({ left: x, top: y })?.pos ?? this.view.state.selection.from
     try {
-      await this.host.exportDocument({ format, html, markdown, sourcePath: this.session.path, target })
-      this.toast(`已导出:${basename(target)}`)
+      await handleDroppedPaths(
+        {
+          host: this.host,
+          settings: this.settings,
+          view: this.view,
+          docPath: this.session.path,
+          openFolder: (path) => {
+            this.sidebar.setRoot(path)
+            void this.updateSettings({ sidebarVisible: true })
+            this.rememberLocation()
+          },
+          openDocument: (path) => void this.openFile(path, { newWindow: true }),
+          importDocument: (path) => this.importDocument(path),
+          importFiles: (files, pos) => this.importFiles(this.view, files, pos),
+        },
+        paths,
+        at,
+      )
     } catch (err) {
-      this.toast(`导出失败:${err instanceof Error ? err.message : String(err)}`, true)
+      this.toast(`拖入失败:${err instanceof Error ? err.message : String(err)}`, true)
+    }
+  }
+
+  /** 经 Pandoc 导入(docx 等)后在新窗口打开;没装 Pandoc 时给安装说明(PRD 3.12、对照表 F-21)。 */
+  private async importDocument(path: string): Promise<void> {
+    try {
+      const markdownPath = await this.host.importDocument(path)
+      await this.host.openDocument(markdownPath, { newWindow: true })
+    } catch (err) {
+      await reportPandocOrError(this.host, (message, error) => this.toast(message, error), err, '导入失败:')
     }
   }
 
@@ -1044,6 +1122,7 @@ export class App {
         if (p?.[0]) {
           this.sidebar.setRoot(p[0])
           void this.updateSettings({ sidebarVisible: true })
+          this.rememberLocation()
         }
       })
     })
@@ -1113,10 +1192,17 @@ export class App {
         if (enc) void this.openFile(path, { replace: true, encoding: enc })
       })
     })
-    cmd('file.print', '打印…', () => void this.host.print())
+    // 深色主题时临时改用浅色主题打印(PRD 3.12)
+    cmd('file.print', '打印…', () =>
+      void printDocument(this.host, this.settings, this.systemDark, () => this.applyAppearance()).catch((err: unknown) =>
+        this.toast(`打印失败:${err instanceof Error ? err.message : String(err)}`, true),
+      ),
+    )
     for (const f of ['pdf', 'html', 'html-plain', 'image', 'docx', 'odt', 'rtf', 'epub', 'latex', 'mediawiki', 'rst', 'textile', 'opml'] as ExportFormat[]) {
       cmd(`file.export.${f}`, `导出 ${f}`, () => void this.exportAs(f))
     }
+    cmd('file.exportPrevious', '使用上一次设置导出', () => void this.exportAs('', 'previous'))
+    cmd('file.exportOverwrite', '导出并覆盖上一次导出的文件', () => void this.exportAs('', 'overwrite'))
     cmd('nav.back', '后退', () => void this.navigate(-1))
     cmd('nav.forward', '前进', () => void this.navigate(1))
     cmd('view.outlinePopover', '大纲窗口', () => {
@@ -1140,22 +1226,28 @@ export class App {
     cmd('view.focusMode', '专注模式', () => void this.updateSettings({ focusMode: !this.settings.focusMode }))
     cmd('view.typewriterMode', '打字机模式', () => void this.updateSettings({ typewriterMode: !this.settings.typewriterMode }))
     cmd('view.statusBar', '显示状态栏', () => void this.updateSettings({ showStatusBar: !this.settings.showStatusBar }))
-    cmd('view.zoomIn', '放大', () => void this.updateSettings({ zoom: Math.min(2.5, Math.round((this.settings.zoom + 0.1) * 10) / 10) }))
-    cmd('view.zoomOut', '缩小', () => void this.updateSettings({ zoom: Math.max(0.5, Math.round((this.settings.zoom - 0.1) * 10) / 10) }))
+    cmd('view.zoomIn', '放大', () => void this.updateSettings({ zoom: clampZoom(Math.round((this.settings.zoom + 0.1) * 10) / 10) }))
+    cmd('view.zoomOut', '缩小', () => void this.updateSettings({ zoom: clampZoom(Math.round((this.settings.zoom - 0.1) * 10) / 10) }))
     cmd('view.zoomReset', '实际大小', () => void this.updateSettings({ zoom: 1 }))
-    cmd('view.toggleDark', '切换浅色 / 深色', () => void this.updateSettings({ appearance: this.isDark() ? 'light' : 'dark' }))
+    cmd('view.pinchZoom', '双指缩放', () => void this.updateSettings({ pinchZoom: !this.settings.pinchZoom }))
+    cmd('view.toggleDark', '切换浅色 / 深色', () => void this.updateSettings({ appearance: isDarkMode(this.settings, this.systemDark) ? 'light' : 'dark' }))
     cmd('view.wordCount', '字数统计', () => {
       const doc = this.view.state.doc
       const { from, to, empty } = this.view.state.selection
-      showWordCount(countWords(doc.textBetween(0, doc.content.size, '\n\n', ' ')), empty ? null : countWords(doc.textBetween(from, to, '\n\n', ' ')))
+      const speed = this.settings.readingSpeed
+      showWordCount(countWords(doc.textBetween(0, doc.content.size, '\n\n', ' '), speed), empty ? null : countWords(doc.textBetween(from, to, '\n\n', ' '), speed))
     })
     cmd('view.pageWidth', '页面宽度', () => {
       const order: AppSettings['pageWidth'][] = ['normal', 'wide', 'full']
       void this.updateSettings({ pageWidth: order[(order.indexOf(this.settings.pageWidth) + 1) % order.length] })
     })
-    for (const theme of ['typoza', 'github', 'newsprint', 'night', 'whitey']) cmd(`theme.${theme}`, theme, () => void this.updateSettings({ theme }))
-    cmd('app.preferences', '偏好设置…', () => showSettings(this.settings, (patch) => void this.updateSettings(patch), this.extraSettingsSections))
-    cmd('app.syncPreferences', '云同步…', () => showSettings(this.settings, (patch) => void this.updateSettings(patch), this.extraSettingsSections, '云同步'))
+    for (const t of BUILTIN_THEMES) cmd(`theme.${t.id}`, t.label, () => void this.setTheme(t.id))
+    cmd('theme.openFolder', '打开主题文件夹', () =>
+      void openThemesFolder(this.host).catch((err: unknown) => this.toast(`打开主题文件夹失败:${err instanceof Error ? err.message : String(err)}`, true)),
+    )
+    cmd('app.preferences', '偏好设置…', () => this.openPreferences())
+    cmd('app.syncPreferences', '云同步…', () => this.openPreferences('云同步'))
+    cmd('app.exportSettings', '导出设置…', () => this.openPreferences('导出'))
     cmd('edit.copyMarkdown', '复制为 Markdown', () => {
       const { from, to } = this.view.state.selection
       void navigator.clipboard.writeText(sliceToMarkdown(this.view.state.doc.slice(from, to).content, this.env))
@@ -1177,8 +1269,9 @@ export class App {
       docPath: () => this.session.path,
       toast: (message, error) => this.toast(message, error),
       importFile: (file) => importFile(this.importContext(), file),
+      upload: (paths) => uploadImages(this.importContext(), paths),
       setFrontMatter: (key, value) => this.setFrontMatter(key, value),
-      openPreferences: (page) => showSettings(this.settings, (patch) => void this.updateSettings(patch), this.extraSettingsSections, page),
+      openPreferences: (page) => this.openPreferences(page),
     })
     registerEditCommands({
       host: this.host,
@@ -1192,6 +1285,24 @@ export class App {
 
   /** 其它模块(如云同步)往偏好设置里加的页签。 */
   extraSettingsSections: { title: string; render: () => HTMLElement }[] = []
+
+  /** 打开偏好设置;page 为页名(如「图像」「导出」),其它模块的菜单项按页名直达。 */
+  openPreferences(page?: string): void {
+    showPreferences(
+      {
+        settings: this.settings,
+        host: this.host,
+        update: (patch) => this.updateSettings(patch),
+        toast: (message, error) => this.toast(message, error),
+        clearRecent: () => {
+          this.recent = []
+          return this.host.clearRecentDocuments()
+        },
+        extraSections: this.extraSettingsSections,
+      },
+      page,
+    )
+  }
 
   /** ⌥⌘9:把当前块转成新文档——以块文字为文件名在当前文件夹新建,原处换成指向它的链接。 */
   private async blockToDocument(): Promise<void> {
@@ -1218,6 +1329,11 @@ export class App {
   private bindHostEvents(): void {
     this.host.on('menu.command', ({ id }) => {
       if (isLightboxOpen() && id !== 'app.preferences') closeLightbox()
+      // 主题菜单里的自定义主题(主题文件夹里的 css)没有预先注册的命令
+      if (id.startsWith('theme.') && !getCommand(id)) {
+        void this.setTheme(id.slice('theme.'.length))
+        return
+      }
       try {
         runCommand(this.view, id)
       } catch (err) {
@@ -1225,9 +1341,12 @@ export class App {
       }
     })
     this.host.on('app.open', ({ path, isDir }) => {
-      if (isDir && !isTextBundle(path)) this.sidebar.setRoot(path)
-      else void this.openFile(path)
+      if (isDir && !isTextBundle(path)) {
+        this.sidebar.setRoot(path)
+        this.rememberLocation()
+      } else void this.openFile(path)
     })
+    this.host.on('app.dropFiles', ({ paths, x, y }) => void this.onNativeDrop(paths, x, y))
     this.host.on('fs.changed', ({ paths }) => {
       if (this.session.path && paths.some((p) => p === this.session.path)) void this.onExternalChange()
       this.sidebar.refresh()
@@ -1243,42 +1362,15 @@ export class App {
     })
   }
 
-  /** 浏览器里(开发、E2E)没有原生菜单,这些应用级快捷键由网页自己处理。 */
+  /** 浏览器里(开发、E2E)没有原生菜单,应用级快捷键(含用户自定义的)由网页自己处理。 */
   private bindBrowserKeys(): void {
     if (this.host.platform !== 'browser') return
-    const keys: Record<string, string> = {
-      'Mod-s': 'file.save',
-      'Mod-Alt-Shift-s': 'file.saveAs',
-      'Mod-p': 'file.quickOpen',
-      'Mod-Shift-o': 'file.quickOpen',
-      'Mod-o': 'file.open',
-      'Mod-f': 'find.open',
-      'Mod-Alt-f': 'find.replace',
-      'Mod-g': 'find.next',
-      'Mod-Shift-g': 'find.prev',
-      'Mod-Shift-f': 'view.search',
-      'Ctrl-Mod-s': 'view.toggleSidebar',
-      'Ctrl-Mod-1': 'view.outline',
-      'Ctrl-Mod-2': 'view.docList',
-      'Ctrl-Mod-3': 'view.fileTree',
-      'Ctrl-Mod-/': 'view.sourceMode',
-      F8: 'view.focusMode',
-      F9: 'view.typewriterMode',
-      'Mod-Shift-l': 'view.toggleDark',
-      'Mod-=': 'view.zoomIn',
-      'Mod--': 'view.zoomOut',
-      'Mod-Shift-0': 'view.zoomReset',
-      'Mod-,': 'app.preferences',
-      'Mod-l': 'file.copyPath',
-      'Mod-[': 'nav.back',
-      'Mod-]': 'nav.forward',
-      'Mod-Shift-c': 'edit.copyMarkdown',
-    }
     window.addEventListener('keydown', (e) => {
       if (e.defaultPrevented) return
-      const name = keyName(e)
-      const id = keys[name]
-      if (!id) return
+      const found = appKeyTable(this.settings.keybindings).get(keyName(e))
+      const id = found ? (BROWSER_ALIASES[found] ?? found) : undefined
+      // native.* 只有原生外壳能做(新标签页、全部保存……)
+      if (!id || id.startsWith('native.')) return
       e.preventDefault()
       runCommand(this.view, id)
     })
@@ -1308,24 +1400,4 @@ export class App {
   markdown(): string {
     return this.session.serialize(this.currentDoc())
   }
-}
-
-/** KeyboardEvent → prosemirror-keymap 风格的键名(Mod = Cmd)。 */
-export function keyName(e: KeyboardEvent): string {
-  const parts: string[] = []
-  if (e.ctrlKey) parts.push('Ctrl')
-  if (e.metaKey) parts.push('Mod')
-  if (e.altKey) parts.push('Alt')
-  if (e.shiftKey) parts.push('Shift')
-  let key = e.key
-  // Alt / Shift 组合会改变 e.key,用物理键还原
-  if (e.altKey || e.shiftKey) {
-    if (/^Key[A-Z]$/.test(e.code)) key = e.code.slice(3).toLowerCase()
-    else if (/^Digit\d$/.test(e.code)) key = e.code.slice(5)
-    else if (e.code === 'Minus') key = '-'
-    else if (e.code === 'Equal') key = '='
-    else if (e.code === 'Slash') key = '/'
-  } else if (key.length === 1) key = key.toLowerCase()
-  parts.push(key)
-  return parts.join('-')
 }

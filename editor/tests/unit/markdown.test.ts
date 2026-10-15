@@ -101,13 +101,26 @@ describe('原文保真:未编辑的文档原样写回', () => {
 describe('Typora 扩展语法识别', () => {
   const { doc } = parseMarkdown(fixture('typora-corpus.md'), parseOpts)
 
-  it('高亮、上下标、下划线、颜色、删除线', () => {
+  it('高亮、下划线、颜色、删除线', () => {
     expect(marksOf(doc, '高亮')).toEqual(['highlight'])
-    expect(marksOf(doc, '2')).toEqual(['sup'])
     expect(marksOf(doc, '删除线')).toEqual(['strike'])
     expect(marksOf(doc, '下划线')).toEqual(['underline'])
     expect(marksOf(doc, '红字')).toEqual(['color'])
-    const sub = find(doc, 'paragraph').flatMap((p) => {
+  })
+
+  // PRD 对照表 PM-08、PM-09:下标 ~…~、上标 ^…^ 的识别默认关(~文字~ 在 GFM 里常被当删除线),打开偏好后才识别
+  it('上下标默认不识别,按普通文字显示', () => {
+    const text = find(doc, 'paragraph')
+      .map((p) => p.textContent)
+      .find((t) => t.startsWith('普通段落'))
+    expect(text).toContain('x^2^、H~2~O')
+    expect(find(doc, 'paragraph').some((p) => p.content.content.some((c) => c.marks.some((m) => m.type.name === 'sup' || m.type.name === 'sub')))).toBe(false)
+  })
+
+  it('打开上下标识别后,^2^ 是上标、~2~ 是下标', () => {
+    const { doc: on } = parseMarkdown(fixture('typora-corpus.md'), { ...parseOpts, superscript: true, subscript: true })
+    expect(marksOf(on, '2')).toEqual(['sup'])
+    const sub = find(on, 'paragraph').flatMap((p) => {
       const r: string[] = []
       p.forEach((c) => {
         if (c.marks.some((m) => m.type.name === 'sub')) r.push(c.text ?? '')
