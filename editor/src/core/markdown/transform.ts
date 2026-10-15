@@ -236,9 +236,9 @@ function wrapperFor(html: string): { tag: string; wrap: Wrapper } | null {
     case 'mark':
       return { tag, wrap: (children) => ({ type: 'mark', children }) }
     case 'sup':
-      return { tag, wrap: (children) => ({ type: 'superscript', children }) }
+      return { tag, wrap: (children) => inlineMark('sup', null, null, children) }
     case 'sub':
-      return { tag, wrap: (children) => ({ type: 'subscript', children }) }
+      return { tag, wrap: (children) => inlineMark('sub', null, null, children) }
     case 's':
     case 'del':
     case 'strike':

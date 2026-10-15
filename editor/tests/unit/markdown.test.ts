@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
 import type { Node as PMNode } from 'prosemirror-model'
 import { EditorState } from 'prosemirror-state'
 import { describe, expect, it } from 'vitest'
@@ -11,7 +11,8 @@ const parseOpts = { inlineMath: true }
 const serOpts = { inlineMath: true, ensureTrailingNewline: false }
 
 function fixture(name: string): string {
-  return readFileSync(fileURLToPath(new URL(`../fixtures/${name}`, import.meta.url)), 'utf8')
+  // vitest 在 editor 目录下运行;jsdom 环境里 import.meta.url 不是文件路径
+  return readFileSync(resolve(process.cwd(), 'tests/fixtures', name), 'utf8')
 }
 
 /** 用 JSON 重建文档:所有节点都是新对象,不再命中原文缓存,相当于「每个块都被编辑过」。 */

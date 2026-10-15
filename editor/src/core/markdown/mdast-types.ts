@@ -1,6 +1,7 @@
 // Typoza 在 mdast 上扩展的节点类型。解析时由 transform.ts 从标准节点(blockquote、html 等)识别出来,
 // 序列化时由 serialize.ts 的处理器写回标准 Markdown 或通用 HTML。
-import type { BlockContent, Parent, PhrasingContent } from 'mdast'
+import type { BlockContent, DefinitionContent, Parent, PhrasingContent } from 'mdast'
+import type { Node } from 'unist'
 import type { CalloutKind, MediaKind } from '../schema'
 
 /** GitHub 提示框:`> [!NOTE] 标题` */
@@ -8,7 +9,7 @@ export interface TzCallout extends Parent {
   type: 'tzCallout'
   kind: CalloutKind
   title: string
-  children: BlockContent[]
+  children: (BlockContent | DefinitionContent)[]
 }
 
 /** 折叠块 `<details><summary>…</summary> … </details>` */
@@ -17,10 +18,10 @@ export interface TzToggle extends Parent {
   openInSource: boolean
   /** summary 的行内内容(由 HTML 解析而来) */
   summaryHtml: string
-  children: BlockContent[]
+  children: (BlockContent | DefinitionContent)[]
 }
 
-export interface TzMedia {
+export interface TzMedia extends Node {
   type: 'tzMedia'
   kind: MediaKind
   src: string
@@ -31,27 +32,27 @@ export interface TzMedia {
   html: string
 }
 
-export interface TzToc {
+export interface TzToc extends Node {
   type: 'tzToc'
 }
 
-export interface TzWikiLink {
+export interface TzWikiLink extends Node {
   type: 'tzWikiLink'
   target: string
   alias: string | null
 }
 
-/** 由成对 HTML 标签识别出的行内格式:<u>、<span style="color">  */
+/** 由成对 HTML 标签识别出的行内格式:<u>、<span style="color">、<sup>、<sub> */
 export interface TzInlineMark extends Parent {
   type: 'tzInlineMark'
-  mark: 'underline' | 'color'
+  mark: 'underline' | 'color' | 'sup' | 'sub'
   color: string | null
   background: string | null
   children: PhrasingContent[]
 }
 
 /** <img> 标签形式的图片(带 width / zoom 等 Markdown 表达不了的属性) */
-export interface TzHtmlImage {
+export interface TzHtmlImage extends Node {
   type: 'tzHtmlImage'
   src: string
   alt: string
@@ -63,7 +64,7 @@ export interface TzHtmlImage {
 }
 
 /** <br> 形式的换行 */
-export interface TzHtmlBreak {
+export interface TzHtmlBreak extends Node {
   type: 'tzHtmlBreak'
 }
 

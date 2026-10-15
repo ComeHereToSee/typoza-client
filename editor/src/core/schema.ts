@@ -88,11 +88,22 @@ const nodes: Record<string, NodeSpec> = {
     toDOM: (node) => ['div', { class: `tz-toggle${node.attrs.open ? ' is-open' : ''}` }, 0],
   },
 
+  // level>0 是折叠标题(Notion 的 Toggle heading),存为 <summary><h2>…</h2></summary>
   toggle_summary: {
+    attrs: { level: { default: 0 } },
     content: 'inline*',
     defining: true,
-    parseDOM: [{ tag: 'summary' }],
-    toDOM: () => ['div', { class: 'tz-toggle-summary' }, 0],
+    parseDOM: [
+      {
+        tag: 'summary',
+        getAttrs: (dom) => {
+          const hd = dom.querySelector(':scope > h1, :scope > h2, :scope > h3, :scope > h4, :scope > h5, :scope > h6')
+          return { level: hd ? Number(hd.tagName.slice(1)) : 0 }
+        },
+        contentElement: (dom) => dom.querySelector(':scope > h1, :scope > h2, :scope > h3, :scope > h4, :scope > h5, :scope > h6') ?? dom,
+      },
+    ],
+    toDOM: (node) => ['div', { class: `tz-toggle-summary${node.attrs.level ? ` tz-toggle-h${node.attrs.level}` : ''}` }, 0],
   },
 
   bullet_list: {
@@ -436,13 +447,16 @@ const marks: Record<string, MarkSpec> = {
     toDOM: () => ['mark', 0],
   },
 
+  // syntax:html(新建时写 <sup>,通用)/ typora(打开的文件里是 ^x^,原样写回)
   sup: {
+    attrs: { syntax: { default: 'html' } },
     excludes: 'sup sub',
     parseDOM: [{ tag: 'sup', getAttrs: (dom) => (dom.classList.contains('tz-footnote-ref') ? false : null) }],
     toDOM: () => ['sup', 0],
   },
 
   sub: {
+    attrs: { syntax: { default: 'html' } },
     excludes: 'sup sub',
     parseDOM: [{ tag: 'sub' }],
     toDOM: () => ['sub', 0],

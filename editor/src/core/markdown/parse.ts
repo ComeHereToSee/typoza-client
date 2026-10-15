@@ -194,9 +194,12 @@ class ToProseMirror {
 
   private toggle(node: TzToggle): PMNode {
     const n = schema.nodes
+    // <summary><h2>标题</h2></summary> 是折叠标题
+    const heading = /^<h([1-6])>([\s\S]*)<\/h\1>$/i.exec(node.summaryHtml.trim())
     const container = document.createElement('div')
-    container.innerHTML = node.summaryHtml
-    const summary = PMDOMParser.fromSchema(schema).parse(container, { topNode: n.toggle_summary.create() })
+    container.innerHTML = heading ? heading[2] : node.summaryHtml
+    const level = heading ? Number(heading[1]) : 0
+    const summary = PMDOMParser.fromSchema(schema).parse(container, { topNode: n.toggle_summary.create({ level }) })
     return n.toggle.create({ open: true, openInSource: node.openInSource }, [summary, ...this.blocks(node.children)])
   }
 
@@ -254,16 +257,20 @@ class ToProseMirror {
           out.push(...this.inlines(node.children, add(s.marks.highlight.create())))
           break
         case 'superscript':
-          out.push(...this.inlines(node.children, add(s.marks.sup.create())))
+          out.push(...this.inlines(node.children, add(s.marks.sup.create({ syntax: 'typora' }))))
           break
         case 'subscript':
-          out.push(...this.inlines(node.children, add(s.marks.sub.create())))
+          out.push(...this.inlines(node.children, add(s.marks.sub.create({ syntax: 'typora' }))))
           break
         case 'tzInlineMark': {
           const mark =
             node.mark === 'underline'
               ? s.marks.underline.create()
-              : s.marks.color.create({ color: node.color, background: node.background })
+              : node.mark === 'sup'
+                ? s.marks.sup.create({ syntax: 'html' })
+                : node.mark === 'sub'
+                  ? s.marks.sub.create({ syntax: 'html' })
+                  : s.marks.color.create({ color: node.color, background: node.background })
           out.push(...this.inlines(node.children, add(mark)))
           break
         }

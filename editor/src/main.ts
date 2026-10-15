@@ -1,36 +1,57 @@
-// P0 骨架:验证打包、WebKit E2E 与 macOS 外壳加载链路。正式编辑内核在后续阶段替换本文件内容。
-import { Schema } from 'prosemirror-model'
-import { EditorState } from 'prosemirror-state'
-import { EditorView } from 'prosemirror-view'
-
-const schema = new Schema({
-  nodes: {
-    doc: { content: 'paragraph+' },
-    paragraph: { content: 'text*', toDOM: () => ['p', 0], parseDOM: [{ tag: 'p' }] },
-    text: {},
-  },
-})
-
-const root = document.getElementById('app')
-if (!root) throw new Error('缺少 #app 挂载点')
-
-const view = new EditorView(root, {
-  state: EditorState.create({
-    doc: schema.node('doc', null, [schema.node('paragraph', null, [schema.text('Typoza')])]),
-  }),
-})
+// 启动:有原生桥接(macOS 外壳)用原生宿主;否则(浏览器开发、E2E)用内存宿主加载示例文件夹。
+import './styles/index.css'
+import { App } from './app/app'
+import { DEMO_DOC, DEMO_ROOT, seedDemo } from './demo'
+import { type MemoryHost, createMemoryHost } from './host/memory'
+import { createNativeHost, hasNativeBridge } from './host/native'
+import { parseMarkdown } from './core/markdown/parse'
+import { type SmokeResult, runSmoke } from './smoke'
 
 declare global {
   interface Window {
-    typoza: { smoke(): Promise<{ ok: boolean; text: string }> }
-    webkit?: { messageHandlers?: Record<string, { postMessage(msg: unknown): Promise<unknown> }> }
+    typoza: { smoke(): Promise<SmokeResult>; markdown(): string }
+    typozaTest?: { host: MemoryHost; app: App; load(markdown: string, path?: string): Promise<void>; markdown(): string; parse: typeof parseMarkdown }
   }
 }
 
-window.typoza = {
-  async smoke() {
-    return { ok: view.state.doc.textContent === 'Typoza', text: view.state.doc.textContent }
-  },
+async function boot(): Promise<void> {
+  const mount = document.getElementById('app')
+  if (!mount) throw new Error('缺少 #app 挂载点')
+  const dark = window.matchMedia('(prefers-color-scheme: dark)').matches
+  let app: App
+  if (hasNativeBridge()) {
+    const { host, info } = await createNativeHost()
+    app = new App({ host, mount, openPath: info.openPath, openIsDir: info.openIsDir, dark: info.dark })
+    await app.init()
+  } else {
+    const host = createMemoryHost()
+    seedDemo(host)
+    const params = new URLSearchParams(location.search)
+    const empty = params.has('empty')
+    app = new App({ host, mount, openPath: empty ? DEMO_ROOT : DEMO_DOC, openIsDir: empty, dark })
+    await app.init()
+    window.typozaTest = {
+      host,
+      app,
+      async load(markdown, path = `${DEMO_ROOT}/测试.md`) {
+        host.files.set(path, { kind: 'file', data: markdown, mtime: Date.now() })
+        await app.openFile(path, { replace: true })
+      },
+      markdown: () => app.markdown(),
+      parse: parseMarkdown,
+    }
+  }
+  window.typoza = { smoke: () => runSmoke(app), markdown: () => app.markdown() }
+  document.documentElement.dataset.ready = 'true'
+  void window.webkit?.messageHandlers?.typoza?.postMessage({ method: 'app.ready', params: {} })
 }
 
-void window.webkit?.messageHandlers?.typoza?.postMessage({ method: 'app.ready', params: {} })
+boot().catch((err: unknown) => {
+  const message = err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err)
+  document.body.innerHTML = ''
+  const pre = document.createElement('pre')
+  pre.className = 'tz-fatal'
+  pre.textContent = `Typoza 启动失败:\n${message}`
+  document.body.append(pre)
+  void window.webkit?.messageHandlers?.typoza?.postMessage({ method: 'app.fatal', params: { message } })
+})

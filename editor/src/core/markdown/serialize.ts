@@ -41,7 +41,8 @@ export function serializeMarkdown(doc: PMNode, meta: DocMeta, options: Serialize
   doc.forEach((node, _offset, index) => {
     const src = blockSources.get(node)
     if (index === 0) firstSourcedAtZero = src?.index === 0
-    const text = src ? src.text : serializeBlock(node, md)
+    // 文首的分割线写成 ***:写 --- 会被当成 YAML front matter 的开头
+    const text = src ? src.text : index === 0 && node.type === schema.nodes.horizontal_rule ? '***' : serializeBlock(node, md)
     if (prev) {
       let gap = '\n\n'
       if (src && prev.src && src.index === prev.src.index + 1) gap = src.gapBefore
@@ -136,8 +137,8 @@ const handlers: Record<string, Handle> = {
   },
 
   tzInlineMark(node: TzInlineMark, _parent, state, info) {
-    let open = '<u>'
-    let close = '</u>'
+    let open = `<${node.mark === 'underline' ? 'u' : node.mark}>`
+    let close = `</${node.mark === 'underline' ? 'u' : node.mark}>`
     if (node.mark === 'color') {
       const style = [node.color ? `color: ${node.color}` : '', node.background ? `background-color: ${node.background}` : '']
         .filter(Boolean)
@@ -222,10 +223,12 @@ function blockToMdast(node: PMNode): RootContent {
     node.forEach((child, _o, i) => {
       if (i > 0) rest.push(child)
     })
+    const inner = inlineHtml(summary)
+    const level = summary.attrs.level as number
     return {
       type: 'tzToggle',
       openInSource: node.attrs.openInSource,
-      summaryHtml: inlineHtml(summary),
+      summaryHtml: level ? `<h${level}>${inner}</h${level}>` : inner,
       children: rest.map(blockToMdast) as BlockContent[],
     }
   }
@@ -353,8 +356,16 @@ function markToMdast(mark: Mark): PhrasingContent {
   if (t === m.em) return { type: 'emphasis', children: [] }
   if (t === m.strike) return { type: 'delete', children: [] }
   if (t === m.highlight) return { type: 'mark', children: [] }
-  if (t === m.sup) return { type: 'superscript', children: [] }
-  if (t === m.sub) return { type: 'subscript', children: [] }
+  if (t === m.sup) {
+    return mark.attrs.syntax === 'typora'
+      ? { type: 'superscript', children: [] }
+      : { type: 'tzInlineMark', mark: 'sup', color: null, background: null, children: [] }
+  }
+  if (t === m.sub) {
+    return mark.attrs.syntax === 'typora'
+      ? { type: 'subscript', children: [] }
+      : { type: 'tzInlineMark', mark: 'sub', color: null, background: null, children: [] }
+  }
   if (t === m.underline) return { type: 'tzInlineMark', mark: 'underline', color: null, background: null, children: [] }
   if (t === m.color) {
     return { type: 'tzInlineMark', mark: 'color', color: mark.attrs.color, background: mark.attrs.background, children: [] }

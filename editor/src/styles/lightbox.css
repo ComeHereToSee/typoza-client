@@ -1,0 +1,91 @@
+/* 图片灯箱 */
+.tz-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(10, 10, 12, 0);
+  transition: background 0.2s ease;
+  outline: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.tz-lightbox.is-open { background: rgba(10, 10, 12, 0.9); }
+.tz-lightbox.is-closing { background: rgba(10, 10, 12, 0); }
+.tz-lb-stage { position: absolute; inset: 0; overflow: hidden; cursor: zoom-out; touch-action: none; }
+.tz-lightbox.is-zoomed .tz-lb-stage { cursor: grab; }
+.tz-lightbox.is-dragging .tz-lb-stage { cursor: grabbing; }
+.tz-lb-frame { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+.tz-lb-img {
+  position: absolute;
+  left: 0;
+  top: 0;
+  max-width: none;
+  transform-origin: center center;
+  will-change: transform;
+  cursor: zoom-in;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  background: repeating-conic-gradient(#ffffff10 0% 25%, transparent 0% 50%) 50% / 20px 20px;
+  image-rendering: auto;
+}
+.tz-lightbox.is-zoomed .tz-lb-img { cursor: inherit; }
+.tz-lightbox.is-closing .tz-lb-frame { opacity: 0; transition: opacity 0.18s; }
+.tz-lb-status { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); color: rgba(255, 255, 255, 0.75); font-size: 14px; max-width: 80%; text-align: center; }
+.tz-lb-toolbar {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 10px;
+  background: rgba(40, 40, 44, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: #fff;
+  font-size: 13px;
+}
+.tz-lb-btn {
+  width: 34px;
+  height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tz-lb-btn:hover { background: rgba(255, 255, 255, 0.14); }
+.tz-lb-btn[disabled] { opacity: 0.35; cursor: default; }
+.tz-lb-zoom { min-width: 48px; text-align: center; font-variant-numeric: tabular-nums; }
+.tz-lb-counter { padding: 0 8px; opacity: 0.75; font-variant-numeric: tabular-nums; }
+.tz-lb-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 46px;
+  height: 64px;
+  background: rgba(40, 40, 44, 0.6);
+  border-radius: 10px;
+}
+.tz-lb-prev { left: 16px; }
+.tz-lb-next { right: 16px; }
+.tz-lb-single .tz-lb-nav { display: none; }
+.tz-lb-caption {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  max-width: 70%;
+  padding: 6px 14px;
+  border-radius: 8px;
+  background: rgba(40, 40, 44, 0.75);
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tz-lb-caption:empty { display: none; }

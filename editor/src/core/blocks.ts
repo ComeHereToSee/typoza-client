@@ -74,7 +74,9 @@ export function collectHeadings(doc: PMNode): HeadingItem[] {
   const out: HeadingItem[] = []
   const used = new Map<string, number>()
   doc.descendants((node, pos) => {
-    if (node.type === schema.nodes.heading) {
+    // 折叠标题也进大纲
+    const isHeading = node.type === schema.nodes.heading || (node.type === schema.nodes.toggle_summary && node.attrs.level > 0)
+    if (isHeading) {
       const text = node.textContent
       let id = slugify(text)
       const n = used.get(id) ?? 0

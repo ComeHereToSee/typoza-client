@@ -1,0 +1,53 @@
+/* 内置主题:以 data-theme 切换。Typoza 默认(Notion 风格)写在 base / editor 里。 */
+
+/* GitHub */
+:root[data-theme='github'] {
+  --tz-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, 'PingFang SC', sans-serif;
+  --tz-text: #1f2328;
+  --tz-code-text: #1f2328;
+  --tz-block-bg: #f6f8fa;
+  --tz-accent: #0969da;
+}
+:root[data-theme='github'] .tz-editor h1, :root[data-theme='github'] .tz-editor h2 { padding-bottom: 0.3em; border-bottom: 1px solid var(--tz-border); }
+:root[data-theme='github'] .tz-editor a { color: var(--tz-accent); text-decoration: none; }
+:root[data-theme='github'] .tz-editor blockquote { color: #59636e; border-left: 4px solid #d1d9e0; }
+
+/* Newsprint:报纸风格衬线 */
+:root[data-theme='newsprint'] {
+  --tz-font-sans: 'PT Serif', 'Times New Roman', 'Songti SC', serif;
+  --tz-text: #333;
+  --tz-bg: #f3f2ee;
+  --tz-bg-side: #ebe9e3;
+  --tz-block-bg: #e9e7e0;
+  --tz-code-text: #333;
+}
+:root[data-theme='newsprint'] .tz-editor h1, :root[data-theme='newsprint'] .tz-editor h2 { font-weight: 400; text-transform: none; }
+
+/* Night:深色 */
+:root[data-theme='night'] {
+  --tz-text: #b8bfc6;
+  --tz-bg: #363b40;
+  --tz-bg-side: #2e3033;
+  --tz-block-bg: #2d3135;
+  --tz-border: #474d54;
+  --tz-code-text: #e6db74;
+  --tz-accent: #e0e0e0;
+}
+:root[data-theme='night'] .tz-editor h1, :root[data-theme='night'] .tz-editor h2, :root[data-theme='night'] .tz-editor h3 { color: #dedede; }
+
+/* Whitey:极简留白 */
+:root[data-theme='whitey'] {
+  --tz-font-sans: 'Vollkorn', Palatino, 'Times New Roman', 'Songti SC', serif;
+  --tz-text: #000;
+  --tz-page-width: 680px;
+  --tz-code-text: #333;
+}
+:root[data-theme='whitey'] .tz-editor { line-height: 1.9; }
+
+/* 导出的独立 HTML */
+body.tz-export { overflow: auto; height: auto; }
+body.tz-export #write { max-width: var(--tz-page-width); margin: 48px auto; padding: 0 48px; white-space: normal; }
+@media print {
+  .tz-sidebar, .tz-side-resizer, .tz-statusbar, .tz-block-handle, .tz-page-actions { display: none !important; }
+  html, body, .tz-scroll { overflow: visible !important; height: auto !important; }
+}

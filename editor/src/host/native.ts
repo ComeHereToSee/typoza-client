@@ -1,0 +1,94 @@
+// 原生宿主:经 WKScriptMessageHandlerWithReply(名为 typoza)调用 Swift;Swift 通过 window.__typozaEmit 推事件。
+import type { Host, HostEvents } from './types'
+
+declare global {
+  interface Window {
+    webkit?: { messageHandlers?: Record<string, { postMessage(msg: unknown): Promise<unknown> }> }
+    __typozaEmit?: (event: string, payload: unknown) => void
+  }
+}
+
+type Listener = (payload: unknown) => void
+
+export interface AppInfo {
+  home: string
+  version: string
+  /** 启动时要打开的文件或文件夹(Finder 双击打开时由外壳传入) */
+  openPath: string | null
+  openIsDir: boolean
+  dark: boolean
+}
+
+function call<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  const handler = window.webkit?.messageHandlers?.typoza
+  if (!handler) return Promise.reject(new Error(`原生桥接不可用,无法调用 ${method}`))
+  return handler.postMessage({ method, params }) as Promise<T>
+}
+
+export function hasNativeBridge(): boolean {
+  return Boolean(window.webkit?.messageHandlers?.typoza)
+}
+
+export async function createNativeHost(): Promise<{ host: Host; info: AppInfo }> {
+  const info = await call<AppInfo>('app.info')
+  const listeners = new Map<string, Set<Listener>>()
+  window.__typozaEmit = (event, payload) => {
+    for (const fn of listeners.get(event) ?? []) fn(payload)
+  }
+
+  const host: Host = {
+    platform: 'macos',
+    resourceURL: (p) => `typoza://local${p.split('/').map(encodeURIComponent).join('/')}`,
+    homeDir: () => info.home,
+
+    readText: (path, encoding) => call('fs.readText', { path, encoding: encoding ?? null }),
+    writeText: (path, text, encoding) => call('fs.writeText', { path, text, encoding: encoding ?? null }),
+    writeBase64: (path, base64) => call('fs.writeBase64', { path, base64 }),
+    copyFile: (from, to) => call('fs.copyFile', { from, to }),
+    stat: (path) => call('fs.stat', { path }),
+    listDir: (path) => call('fs.listDir', { path }),
+    mkdir: (path) => call('fs.mkdir', { path }),
+    rename: (from, to) => call('fs.rename', { from, to }),
+    trash: (path) => call('fs.trash', { path }),
+    watch: (paths) => call('fs.watch', { paths }),
+    search: (root, query, options) => call('fs.search', { root, query, ...options }),
+    listMarkdown: (root) => call('fs.listMarkdown', { root }),
+
+    setWindowState: (state) => {
+      void call('window.setState', { ...state })
+    },
+    openDialog: (options) => call('dialog.open', { ...options }),
+    saveDialog: (options) => call('dialog.save', { ...options }),
+    confirm: (options) => call('dialog.confirm', { ...options }),
+    revealInFinder: (path) => call('system.reveal', { path }),
+    openExternal: (url) => call('system.openURL', { url }),
+    openDocument: (path, options) => call('app.openDocument', { path, newWindow: options?.newWindow ?? false }),
+    openWithDefaultApp: (path) => call('system.openWithDefaultApp', { path }),
+    copyImageToClipboard: (path) => call('system.copyImage', { path }),
+    fetchLinkPreview: (url) => call('net.linkPreview', { url }),
+    closeWindow: () => {
+      void call('window.close')
+    },
+
+    getSettings: () => call('settings.get'),
+    setSettings: (patch) => call('settings.set', { patch }),
+
+    historyList: (path) => call('history.list', { path }),
+    historyRead: (path, id) => call('history.read', { path, id }),
+
+    exportDocument: (options) => call('export.run', { ...options }),
+    print: () => call('export.print'),
+    uploadImages: (command, paths) => call('image.upload', { command, paths }),
+
+    on<K extends keyof HostEvents>(event: K, handler: (payload: HostEvents[K]) => void) {
+      let set = listeners.get(event)
+      if (!set) listeners.set(event, (set = new Set()))
+      set.add(handler as Listener)
+      return () => set.delete(handler as Listener)
+    },
+  }
+  return { host, info }
+}
+
+/** 少量不经 Host 抽象的原生调用(同步、历史等由各模块直接用)。 */
+export const nativeCall = call
