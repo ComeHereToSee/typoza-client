@@ -4,8 +4,15 @@ let seq = 0
 
 const DIAGRAM_LANGUAGES = new Set(['mermaid'])
 
+/** 偏好「Markdown ▸ 图表」(PM-12):关闭后图表代码块按普通代码显示。 */
+let diagramsEnabled = true
+
+export function setDiagramsEnabled(on: boolean): void {
+  diagramsEnabled = on
+}
+
 export function isDiagramLanguage(language: string | null | undefined): boolean {
-  return DIAGRAM_LANGUAGES.has((language ?? '').toLowerCase())
+  return diagramsEnabled && DIAGRAM_LANGUAGES.has((language ?? '').toLowerCase())
 }
 
 function loadMermaid() {

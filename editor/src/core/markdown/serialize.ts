@@ -6,6 +6,7 @@ import type {
   DefinitionContent,
   Blockquote,
   Emphasis,
+  Heading,
   Link,
   ListItem,
   PhrasingContent,
@@ -26,14 +27,26 @@ import type { TzCallout, TzHtmlImage, TzInlineMark, TzMedia, TzToggle, TzWikiLin
 import { blockSources, type DocMeta } from './parse'
 import { typoraInlineToMarkdown } from './syntax'
 
+/** 序列化选项。只影响新建或编辑过的块(没动过的块原样写回);可选项不传时取括号里的默认值。 */
 export interface SerializeOptions {
   inlineMath: boolean
   /** 文末保证有换行(Typora 偏好「保存时在文末添加空行」) */
   ensureTrailingNewline: boolean
+  /** 标题写法(PM-02,默认 atx):atx `# 标题` / atx 带后缀 `# 标题 #` / setext(下划线固定 3 个字符)/ 可变宽 setext(与文字等宽);setext 只用于一、二级标题 */
+  headingStyle?: 'atx' | 'atx-closed' | 'setext' | 'setext-variable'
+  /** 原文没有无序列表时用的符号(PM-03,默认 -) */
+  bullet?: '-' | '*' | '+'
+  /** 有序列表连续编号 1. 2. 3.;false 时写 1. 1. 1.(PM-04,默认 true) */
+  incrementListMarker?: boolean
+  /** 列表内容缩进:与列表标记对齐 / 制表位 4 格(PE-01,默认 one) */
+  listItemIndent?: 'one' | 'tab'
+  /** 自动识别网址(PM-05,默认开);关闭时网址就是普通文字,不再为防止被识别而写成 https\://… */
+  autolink?: boolean
 }
 
 export function serializeMarkdown(doc: PMNode, meta: DocMeta, options: SerializeOptions): string {
   const md = markdownOptions(meta, options)
+  const bullet = meta.bullet ?? options.bullet ?? '-'
   const children: PMNode[] = []
   doc.forEach((node) => children.push(node))
   const parts: string[] = []
@@ -58,7 +71,7 @@ export function serializeMarkdown(doc: PMNode, meta: DocMeta, options: Serialize
           if (known) avoid.add(known)
         }
       }
-      const marker = pickMarker(node, meta, avoid)
+      const marker = pickMarker(node, bullet, avoid)
       markers.set(node, marker)
       const opts = node.type === schema.nodes.ordered_list ? { ...md, bulletOrdered: marker as '.' | ')' } : { ...md, bullet: marker as '-' | '*' | '+', bulletOther: marker === '-' ? ('*' as const) : ('-' as const) }
       text = serializeBlock(node, opts)
@@ -91,8 +104,8 @@ function sourcedMarker(node: PMNode): string | null {
   return /^\s*([-*+])/.exec(src.text)?.[1] ?? null
 }
 
-function pickMarker(node: PMNode, meta: DocMeta, avoid: Set<string>): string {
-  const pool = node.type === schema.nodes.ordered_list ? ['.', ')'] : [meta.bullet, '-', '*', '+']
+function pickMarker(node: PMNode, bullet: string, avoid: Set<string>): string {
+  const pool = node.type === schema.nodes.ordered_list ? ['.', ')'] : [bullet, '-', '*', '+']
   return pool.find((m) => !avoid.has(m)) ?? pool[0]
 }
 
@@ -110,25 +123,43 @@ export function serializeBlocks(nodes: PMNode[], meta: DocMeta, options: Seriali
 }
 
 export function markdownOptions(meta: DocMeta, options: SerializeOptions): Options {
+  const bullet = meta.bullet ?? options.bullet ?? '-'
+  const style = options.headingStyle ?? 'atx'
   return {
-    bullet: meta.bullet,
-    bulletOther: meta.bullet === '-' ? '*' : '-',
+    bullet,
+    bulletOther: bullet === '-' ? '*' : '-',
     emphasis: '*',
     strong: '*',
     fence: '`',
     fences: true,
     rule: '-',
-    listItemIndent: 'one',
-    incrementListMarker: true,
+    listItemIndent: options.listItemIndent ?? 'one',
+    incrementListMarker: options.incrementListMarker ?? true,
+    setext: style === 'setext' || style === 'setext-variable',
+    closeAtx: style === 'atx-closed',
     resourceLink: false,
-    handlers: handlers as Options['handlers'],
+    handlers: (style === 'setext' ? { ...handlers, heading: fixedSetextHeading } : handlers) as Options['handlers'],
     extensions: [
-      gfmToMarkdown(),
+      options.autolink === false ? gfmWithoutAutolinkEscapes() : gfmToMarkdown(),
       mathToMarkdown({ singleDollarTextMath: options.inlineMath }),
       frontmatterToMarkdown(['yaml']),
       typoraInlineToMarkdown(),
     ],
   }
+}
+
+/** setext 标题的下划线固定写 3 个字符(PM-02「setext」;「可变宽 setext」沿用默认的与文字等宽)。 */
+const fixedSetextHeading: Handle = (node: Heading, parent, state, info) =>
+  defaultHandlers.heading(node, parent, state, info).replace(/\n(=+|-+)$/, (_m, line: string) => `\n${line.charAt(0).repeat(3)}`)
+
+/**
+ * 关闭「自动识别网址」(PM-05)时,正文里的网址是普通文字,去掉 GFM 为防止网址被识别而加的转义(`https\://`、`www\.`、`a\@b`),
+ * 否则编辑过的段落里每个网址都会被改写。按转义规则的形状认出 autolink-literal 那一组。
+ */
+function gfmWithoutAutolinkEscapes(): Options {
+  const gfm = gfmToMarkdown()
+  const isAutolinkLiteral = (ext: Options) => (ext.unsafe ?? []).some((u) => u.character === ':' && u.after === '\\/')
+  return { ...gfm, extensions: (gfm.extensions ?? []).map((ext) => (isAutolinkLiteral(ext) ? { ...ext, unsafe: [] } : ext)) }
 }
 
 // ---------- 自定义节点处理器 ----------

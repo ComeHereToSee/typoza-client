@@ -101,8 +101,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// 偏好「所有窗口被关闭后自动退出」(PG-01,默认关);冒烟自检由自检流程自己退出
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        smokeOut == nil
+        guard smokeOut == nil else { return false }
+        do {
+            return (try settings.load()["quitOnLastWindowClosed"] as? Bool) ?? false
+        } catch {
+            NSLog("Typoza:读取偏好设置失败,关闭最后一个窗口后不退出:%@", "\(error)")
+            return false
+        }
+    }
+
+    /// 不自动退出时可能一个窗口都没有:点程序坞图标开一个新窗口
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag && windows.isEmpty { newWindow(open: nil) }
+        return true
     }
 
     // ---------- 窗口 ----------

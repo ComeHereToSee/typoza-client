@@ -37,6 +37,19 @@ enum MainMenu {
 
     static var sep: NSMenuItem { .separator() }
 
+    /// 同一命令的别名键位:按住修饰键时替换上一项显示(如放大 ⌘= 与 ⇧⌘=)
+    static func alias(_ item: NSMenuItem) -> NSMenuItem {
+        item.isAlternate = true
+        return item
+    }
+
+    /// 由当前窗口处理、按窗口状态启用的命令项(如「使用上一次设置导出」:这篇文档没导出过时置灰)
+    static func windowCmd(_ title: String, _ id: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: #selector(DocumentWindowController.windowMenuCommand(_:)), keyEquivalent: "")
+        item.representedObject = id
+        return item
+    }
+
     static func build(recentMenu: NSMenu, windowMenu: NSMenu, helpMenu: NSMenu) -> NSMenu {
         let main = NSMenu(title: "主菜单")
 
@@ -70,6 +83,11 @@ enum MainMenu {
             cmd("reStructuredText", "file.export.rst"),
             cmd("Textile", "file.export.textile"),
             cmd("OPML", "file.export.opml"),
+            sep,
+            windowCmd("使用上一次设置导出", "file.exportPrevious"),
+            windowCmd("导出并覆盖上一次导出的文件", "file.exportOverwrite"),
+            sep,
+            cmd("导出设置…", "app.exportSettings"),
         ])
         let file = submenu("文件", [
             cmd("新建", "native.newWindow", "n"),
@@ -94,6 +112,7 @@ enum MainMenu {
             sep,
             cmd("导入…", "native.import"),
             exportMenu,
+            std("页面设置…", #selector(NSApplication.runPageLayout(_:))),
             cmd("打印…", "file.print", "p", [.command, .shift]),
             sep,
             std("关闭", #selector(NSWindow.performClose(_:)), "w"),
@@ -211,7 +230,7 @@ enum MainMenu {
             cmd("清除样式", "format.clear", "\\"),
         ])
 
-        let view = submenu("视图", [
+        let view = submenu("显示", [
             cmd("源代码模式", "view.sourceMode", "/", [.control, .command]),
             sep,
             cmd("显示 / 隐藏侧边栏", "view.toggleSidebar", "s", [.control, .command]),
@@ -227,20 +246,19 @@ enum MainMenu {
             sep,
             cmd("实际大小", "view.zoomReset", "0", [.command, .shift]),
             cmd("放大", "view.zoomIn", "="),
+            alias(cmd("放大", "view.zoomIn", "=", [.command, .shift])),
             cmd("缩小", "view.zoomOut", "-"),
+            alias(cmd("缩小", "view.zoomOut", "-", [.command, .shift])),
+            cmd("双指缩放", "view.pinchZoom"),
             sep,
             cmd("切换浅色 / 深色", "view.toggleDark", "l", [.command, .shift]),
             std("切换全屏", #selector(NSWindow.toggleFullScreen(_:)), "f", [.control, .command]),
             cmd("保持窗口在最前端", "native.alwaysOnTop"),
         ])
 
-        let theme = submenu("主题", [
-            cmd("Typoza", "theme.typoza"),
-            cmd("GitHub", "theme.github"),
-            cmd("Newsprint", "theme.newsprint"),
-            cmd("Night", "theme.night"),
-            cmd("Whitey", "theme.whitey"),
-        ])
+        // 主题菜单每次打开时由 MenuCustomizer 重建(内置主题 + 主题文件夹里的 css)
+        let theme = submenu("主题", [])
+        theme.submenu?.delegate = MenuCustomizer.shared
 
         let window = NSMenuItem(title: "窗口", action: nil, keyEquivalent: "")
         windowMenu.addItem(std("最小化", #selector(NSWindow.performMiniaturize(_:)), "m"))

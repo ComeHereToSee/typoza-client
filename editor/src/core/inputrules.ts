@@ -6,13 +6,14 @@ import { type EditorState, TextSelection, type Transaction } from 'prosemirror-s
 import { canJoin, findWrapping } from 'prosemirror-transform'
 import { findAncestor } from './commands'
 import { schema } from './schema'
+import { type SmartPunctuation, smartDash, smartQuote } from './smart-punctuation'
 
 const n = schema.nodes
 const m = schema.marks
 
 export interface InputRuleOptions {
-  /** 智能标点:`->` → →、`<-` → ←、`--` → — */
-  smartPunctuation: boolean
+  /** 智能标点(PRD 对照表 E-32 ~ E-34、PM-13、PM-14);mode 为 input 时在这里改写字符 */
+  smartPunctuation: SmartPunctuation
 }
 
 /** 段落开头敲标记把段落变成另一种文本块(标题、代码块、公式块)。只在普通段落里生效。 */
@@ -199,9 +200,39 @@ function inlineRules(options: InputRuleOptions): InputRule[] {
       return state.tr.addMark(from, end, m.link.create({ href: `mailto:${email}`, autolink: true })).insertText(' ', end)
     }),
   ]
-  if (options.smartPunctuation) {
-    // `--` 要等空格再转换,否则敲 `---` 分割线时会先变成破折号
-    rules.push(new InputRule(/->$/, '→'), new InputRule(/<-$/, '←'), new InputRule(/--\s$/, '— '))
+  if (options.smartPunctuation.mode === 'input') rules.push(...smartPunctuationRules(options.smartPunctuation))
+  return rules
+}
+
+/** 输入时转换的智能标点;行内代码、代码块、公式里不转换。 */
+function smartPunctuationRules(sp: SmartPunctuation): InputRule[] {
+  const rules: InputRule[] = []
+  if (sp.quotes) {
+    // 敲下直引号时按前一个字符决定左右引号
+    rules.push(
+      new InputRule(
+        /(^|[\s\S])(["'])$/,
+        (state, match, start, end) => {
+          const prev = match[1]
+          const quote = match[2] === '"' ? '"' : "'"
+          return state.tr.insertText(smartQuote(quote, prev, sp), start + prev.length, end)
+        },
+        { inCodeMark: false },
+      ),
+    )
+  }
+  if (sp.dashes) {
+    // -- / --- 后面敲下一个非连字符时才转换:整段只敲 --- 时先由分割线规则变成分割线(PM-14「独占一行仍为分割线」)
+    rules.push(
+      new InputRule(
+        /(^|[^-])(-{2,3})([^-])$/,
+        (state, match, start, end) => {
+          const [, before, dashes, typed] = match
+          return state.tr.insertText(smartDash(dashes, sp) + typed, start + before.length, end)
+        },
+        { inCodeMark: false },
+      ),
+    )
   }
   return rules
 }

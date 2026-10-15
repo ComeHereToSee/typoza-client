@@ -6,6 +6,7 @@ import { serializeMarkdown } from '../core/markdown/serialize'
 import { dirname, joinPath, normalizePath } from '../core/paths'
 import { schema } from '../core/schema'
 import type { Host } from '../host/types'
+import { parseOptionsFrom, serializeOptionsFrom } from './markdown-prefs'
 import type { AppSettings } from './settings'
 
 export interface FrontMatterInfo {
@@ -18,7 +19,7 @@ export interface FrontMatterInfo {
 
 export class DocumentSession {
   path: string | null = null
-  meta: DocMeta = { lineEnding: '\n', bom: false, leading: '', trailing: '\n', bullet: '-' }
+  meta: DocMeta = { lineEnding: '\n', bom: false, leading: '', trailing: '\n', bullet: null }
   encoding = 'utf-8'
   savedMtime = 0
   dirty = false
@@ -37,7 +38,7 @@ export class DocumentSession {
 
   async load(path: string, encoding?: string): Promise<PMNode> {
     const result = await this.host.readText(path, encoding)
-    const parsed = parseMarkdown(result.text, { inlineMath: this.settings().inlineMath })
+    const parsed = parseMarkdown(result.text, parseOptionsFrom(this.settings()))
     this.path = path
     this.meta = parsed.meta
     this.encoding = result.encoding
@@ -49,7 +50,8 @@ export class DocumentSession {
 
   createEmpty(): PMNode {
     this.path = null
-    this.meta = { lineEnding: '\n', bom: false, leading: '', trailing: '\n', bullet: '-' }
+    // 新文件换行符按偏好(PE-07);无序列表符号跟偏好走(bullet 为 null)
+    this.meta = { lineEnding: this.settings().defaultLineEnding === 'crlf' ? '\r\n' : '\n', bom: false, leading: '', trailing: '\n', bullet: null }
     this.encoding = 'utf-8'
     this.savedMtime = 0
     this.savedText = ''
@@ -59,7 +61,7 @@ export class DocumentSession {
 
   serialize(doc: PMNode): string {
     const s = this.settings()
-    return serializeMarkdown(doc, this.meta, { inlineMath: s.inlineMath, ensureTrailingNewline: s.ensureTrailingNewline })
+    return serializeMarkdown(doc, this.meta, serializeOptionsFrom(s))
   }
 
   async save(doc: PMNode, path = this.path): Promise<void> {

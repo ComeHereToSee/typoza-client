@@ -1,7 +1,6 @@
-// 弹出面板:偏好设置、字数统计、历史版本。
+// 弹出面板:字数统计、历史版本,以及各面板共用的模态框。偏好设置在 preferences.ts。
 import { h } from '../ui/dom'
 import type { HistoryEntry, Host } from '../host/types'
-import { BUILTIN_THEMES, type AppSettings } from './settings'
 
 export function modal(title: string, body: HTMLElement, onClose?: () => void): { root: HTMLElement; close: () => void } {
   const closeBtn = h('button', { type: 'button', class: 'tz-modal-close', title: '关闭(Esc)' }, '×')
@@ -13,7 +12,8 @@ export function modal(title: string, body: HTMLElement, onClose?: () => void): {
     onClose?.()
   }
   const onKey = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
+    // 正在录制快捷键的控件要自己收 Esc(取消录制),不关面板
+    if (e.key === 'Escape' && !(e.target instanceof Element && e.target.closest('[data-tz-capture-keys]'))) {
       e.preventDefault()
       e.stopPropagation()
       close()
@@ -28,154 +28,6 @@ export function modal(title: string, body: HTMLElement, onClose?: () => void): {
   return { root, close }
 }
 
-// ---------- 偏好设置 ----------
-
-type Field =
-  | { key: keyof AppSettings; label: string; type: 'bool'; hint?: string }
-  | { key: keyof AppSettings; label: string; type: 'select'; options: { value: string; label: string }[]; hint?: string }
-  | { key: keyof AppSettings; label: string; type: 'text' | 'number'; placeholder?: string; hint?: string }
-
-const SECTIONS: { id: string; title: string; fields: Field[] }[] = [
-  {
-    id: 'general',
-    title: '通用',
-    fields: [
-      { key: 'autoSave', label: '自动保存', type: 'bool', hint: '停止输入 1 秒后自动保存;关闭后用 ⌘S 手动保存' },
-      { key: 'ensureTrailingNewline', label: '保存时在文末添加空行', type: 'bool' },
-      { key: 'showStatusBar', label: '显示状态栏', type: 'bool' },
-    ],
-  },
-  {
-    id: 'appearance',
-    title: '外观',
-    fields: [
-      { key: 'theme', label: '主题', type: 'select', options: BUILTIN_THEMES.map((t) => ({ value: t.id, label: t.label })) },
-      {
-        key: 'appearance',
-        label: '浅色 / 深色',
-        type: 'select',
-        options: [
-          { value: 'system', label: '跟随系统' },
-          { value: 'light', label: '浅色' },
-          { value: 'dark', label: '深色' },
-        ],
-      },
-      {
-        key: 'fontFamily',
-        label: '正文字体',
-        type: 'select',
-        options: [
-          { value: 'default', label: '默认' },
-          { value: 'serif', label: '衬线' },
-          { value: 'mono', label: '等宽' },
-        ],
-      },
-      { key: 'fontSize', label: '字号(px)', type: 'number' },
-      {
-        key: 'pageWidth',
-        label: '页面宽度',
-        type: 'select',
-        options: [
-          { value: 'normal', label: '标准' },
-          { value: 'wide', label: '加宽' },
-          { value: 'full', label: '全宽' },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'editor',
-    title: '编辑器',
-    fields: [
-      { key: 'smartPunctuation', label: '智能标点(-> 变 →,-- 变 —)', type: 'bool' },
-      { key: 'autoPair', label: '自动配对括号与引号', type: 'bool' },
-      { key: 'spellcheck', label: '拼写检查', type: 'bool' },
-      { key: 'codeLineNumbers', label: '代码块显示行号', type: 'bool' },
-      { key: 'codeLineWrap', label: '代码块自动换行', type: 'bool' },
-    ],
-  },
-  {
-    id: 'markdown',
-    title: 'Markdown',
-    fields: [{ key: 'inlineMath', label: '识别 $…$ 行内公式', type: 'bool', hint: '关闭后单个 $ 按普通文字处理' }],
-  },
-  {
-    id: 'image',
-    title: '图片',
-    fields: [
-      {
-        key: 'imageInsertAction',
-        label: '插入图片时',
-        type: 'select',
-        options: [
-          { value: 'copyToAssets', label: '复制到资源文件夹' },
-          { value: 'copyToCurrent', label: '复制到当前文件夹' },
-          { value: 'copyToCustom', label: '复制到指定文件夹' },
-          { value: 'upload', label: '复制后用上传命令上传' },
-          { value: 'none', label: '不处理(使用原路径)' },
-        ],
-      },
-      { key: 'imageAssetsFolder', label: '资源文件夹', type: 'text', placeholder: './assets', hint: '可用 ${filename} 代表当前文件名' },
-      { key: 'imageCustomFolder', label: '指定文件夹', type: 'text', placeholder: '/Users/…/Pictures' },
-      { key: 'imageUploadCommand', label: '上传命令', type: 'text', placeholder: 'picgo upload', hint: '命令接收图片路径参数,标准输出最后几行是上传后的网址' },
-      { key: 'imageUseRelative', label: '优先使用相对路径', type: 'bool' },
-    ],
-  },
-  {
-    id: 'export',
-    title: '导出',
-    fields: [{ key: 'pandocPath', label: 'Pandoc 路径', type: 'text', placeholder: '留空自动查找 /opt/homebrew/bin/pandoc 等', hint: '导出 Word、EPUB、LaTeX 等格式需要安装 Pandoc' }],
-  },
-]
-
-export function showSettings(settings: AppSettings, onChange: (patch: Partial<AppSettings>) => void, extraSections: { title: string; render: () => HTMLElement }[] = [], initialTitle?: string): void {
-  const nav = h('nav', { class: 'tz-settings-nav' })
-  const content = h('div', { class: 'tz-settings-content' })
-  const sections = [
-    ...SECTIONS.map((s) => ({ title: s.title, render: () => renderFields(s.fields, settings, onChange) })),
-    ...extraSections,
-  ]
-  let active = 0
-  const show = (i: number) => {
-    active = i
-    for (const [j, el] of Array.from(nav.children).entries()) el.classList.toggle('is-active', j === active)
-    content.replaceChildren(sections[i].render())
-  }
-  sections.forEach((s, i) => {
-    const b = h('button', { type: 'button', class: 'tz-settings-tab' }, s.title)
-    b.addEventListener('click', () => show(i))
-    nav.append(b)
-  })
-  modal('偏好设置', h('div', { class: 'tz-settings' }, nav, content))
-  show(Math.max(0, sections.findIndex((s) => s.title === initialTitle)))
-}
-
-function renderFields(fields: Field[], settings: AppSettings, onChange: (patch: Partial<AppSettings>) => void): HTMLElement {
-  const box = h('div', { class: 'tz-settings-fields' })
-  for (const f of fields) {
-    let control: HTMLElement
-    const value = settings[f.key]
-    if (f.type === 'bool') {
-      const input = h('input', { type: 'checkbox' })
-      input.checked = Boolean(value)
-      input.addEventListener('change', () => onChange({ [f.key]: input.checked } as Partial<AppSettings>))
-      control = input
-    } else if (f.type === 'select') {
-      const select = h('select', null, ...f.options.map((o) => h('option', { value: o.value }, o.label)))
-      select.value = String(value)
-      select.addEventListener('change', () => onChange({ [f.key]: select.value } as Partial<AppSettings>))
-      control = select
-    } else {
-      const input = h('input', { type: f.type, placeholder: f.placeholder ?? '' })
-      input.value = String(value ?? '')
-      input.addEventListener('change', () => onChange({ [f.key]: f.type === 'number' ? Number(input.value) : input.value } as Partial<AppSettings>))
-      control = input
-    }
-    box.append(h('label', { class: 'tz-field' }, h('span', { class: 'tz-field-label' }, f.label), control, f.hint ? h('span', { class: 'tz-field-hint' }, f.hint) : null))
-  }
-  return box
-}
-
 // ---------- 字数统计 ----------
 
 export interface WordStats {
@@ -188,10 +40,13 @@ export interface WordStats {
   readingMinutes: number
 }
 
-const CJK = /[\u3400-\u9fff\uf900-\ufaff\u3040-\u30ff\uac00-\ud7af]/g
+const CJK = /[\u{3400}-\u{9FFF}\u{F900}-\u{FAFF}\u{3040}-\u{30FF}\u{AC00}-\u{D7AF}]/gu
 
-/** 字数:中日韩字符每字算一个词,其它按空白分词(与 Typora 的口径一致)。 */
-export function countWords(text: string): WordStats {
+/**
+ * 字数:中日韩字符每字算一个词,其它按空白分词(与 Typora 的口径一致)。
+ * 阅读时间 = 字数 ÷ 阅读速度(偏好「外观」PA-05,中日韩按字、西文按词,默认 382 字每分钟),不足 1 分钟按 1 分钟。
+ */
+export function countWords(text: string, readingSpeed = 382): WordStats {
   const cjk = (text.match(CJK) ?? []).length
   const latin = text.replace(CJK, ' ')
   const latinWords = (latin.match(/[\p{L}\p{N}][\p{L}\p{N}'’_-]*/gu) ?? []).length
@@ -203,8 +58,7 @@ export function countWords(text: string): WordStats {
     cjk,
     lines: text ? text.split('\n').length : 0,
     paragraphs: text.split(/\n{2,}/).filter((p) => p.trim()).length,
-    // 中文约 400 字 / 分钟,英文约 200 词 / 分钟
-    readingMinutes: Math.max(1, Math.round(cjk / 400 + latinWords / 200)),
+    readingMinutes: Math.max(1, Math.round(words / Math.max(1, readingSpeed))),
   }
 }
 

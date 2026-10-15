@@ -17,6 +17,8 @@ export interface AppInfo {
   openPath: string | null
   openIsDir: boolean
   dark: boolean
+  /** 应用启动时建的第一个窗口 */
+  launch?: boolean
 }
 
 function call<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
@@ -38,6 +40,7 @@ export async function createNativeHost(): Promise<{ host: Host; info: AppInfo }>
 
   const host: Host = {
     platform: 'macos',
+    isLaunchWindow: info.launch ?? false,
     resourceURL: (p) => `typoza://local${p.split('/').map(encodeURIComponent).join('/')}`,
     homeDir: () => info.home,
 
@@ -78,7 +81,15 @@ export async function createNativeHost(): Promise<{ host: Host; info: AppInfo }>
 
     exportDocument: (options) => call('export.run', { ...options }),
     print: () => call('export.print'),
-    uploadImages: (command, paths) => call('image.upload', { command, paths }),
+    uploadImages: (options, paths) => call('image.upload', { service: options.service, command: options.command, paths }),
+    downloadFile: (url, target) => call('net.download', { url, target }),
+    importDocument: (path) => call('app.importDocument', { path }),
+    runCommand: (command, cwd) => call('system.runCommand', { command, cwd }),
+    clearRecentDocuments: () => call('system.clearRecent'),
+    setSpellingLanguage: (language) => call('system.setSpellingLanguage', { language }),
+    setMenuKeys: (overrides) => call('menu.setKeys', { overrides }),
+    setExportItems: (items) => call('menu.setExportItems', { items }),
+    runNativeCommand: (id) => call('app.nativeCommand', { id }),
 
     async syncCall<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
       const r = await call<{ ok: boolean; result?: unknown; error?: { code: string; message: string } }>('sync.call', { method, params })

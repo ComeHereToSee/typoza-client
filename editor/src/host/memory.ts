@@ -79,6 +79,7 @@ export function createMemoryHost(): MemoryHost {
 
   const host: MemoryHost = {
     platform: 'browser',
+    isLaunchWindow: false,
     files,
     settings,
     calls,
@@ -172,7 +173,7 @@ export function createMemoryHost(): MemoryHost {
     },
     async saveDialog(options) {
       record('saveDialog', options)
-      return `/Users/test/${options.defaultName}`
+      return `${options.directory ?? '/Users/test'}/${options.defaultName}`
     },
     async confirm(options) {
       record('confirm', options)
@@ -212,13 +213,44 @@ export function createMemoryHost(): MemoryHost {
       throw new Error('内存宿主没有历史版本')
     },
     async exportDocument(options) {
-      record('exportDocument', options.format, options.target)
+      record('exportDocument', options.format, options.target, options.options ?? {})
+      put(options.target, options.format === 'html' || options.format === 'html-plain' ? options.html : `导出的 ${options.format}`)
     },
     async print() {
-      record('print')
+      record('print', document.documentElement.dataset.theme, document.documentElement.classList.contains('tz-dark'))
     },
-    async uploadImages(_command, paths) {
-      return paths.map((p) => `https://img.example.com${p}`)
+    async uploadImages(options, paths) {
+      record('uploadImages', options, paths)
+      return paths.map((p) => `https://img.example.com${p.startsWith('/') ? p : `/${p}`}`)
+    },
+    async downloadFile(url, target) {
+      record('downloadFile', url, target)
+      put(target, `下载自 ${url}`)
+    },
+    async importDocument(path) {
+      record('importDocument', path)
+      const target = `${path.replace(/\.[^./]+$/, '')}.md`
+      put(target, `# 导入自 ${path.slice(path.lastIndexOf('/') + 1)}\n`)
+      return target
+    },
+    async runCommand(command, cwd) {
+      record('runCommand', command, cwd)
+      return { status: 0, output: '' }
+    },
+    async clearRecentDocuments() {
+      record('clearRecentDocuments')
+    },
+    async setSpellingLanguage(language) {
+      record('setSpellingLanguage', language)
+    },
+    async setMenuKeys(overrides) {
+      record('setMenuKeys', overrides)
+    },
+    async setExportItems(items) {
+      record('setExportItems', items)
+    },
+    async runNativeCommand(id) {
+      record('runNativeCommand', id)
     },
     syncCall: (method, params) => fakeSync(method, params ?? {}) as Promise<never>,
     on(event, handler) {
