@@ -64,14 +64,25 @@ function processorFor(inlineMath: boolean): Processor<Root> {
   return p
 }
 
+/** 最近一次 parseMarkdown 各阶段耗时(毫秒),冒烟报告分析大文档用 */
+export const parseTimings: Record<string, number> = {}
+
 export function parseMarkdown(markdown: string, options: ParseOptions): ParsedDoc {
+  let mark = performance.now()
+  const lap = (name: string) => {
+    const now = performance.now()
+    parseTimings[name] = Math.round(now - mark)
+    mark = now
+  }
   const bom = markdown.startsWith('\uFEFF')
   let text = bom ? markdown.slice(1) : markdown
   const lineEnding: DocMeta['lineEnding'] = text.includes('\r\n') ? '\r\n' : '\n'
   text = text.replace(/\r\n?/g, '\n')
 
   const tree = processorFor(options.inlineMath).parse(text) as Root
+  lap('micromark')
   transformTree(tree, text)
+  lap('transform')
 
   const conv = new ToProseMirror(text)
   conv.collectDefinitions(tree)
@@ -92,12 +103,14 @@ export function parseMarkdown(markdown: string, options: ParseOptions): ParsedDo
     blocks.push(...nodes)
   })
   const trailing = text.slice(prevEnd)
+  lap('convert')
 
   if (blocks.length === 0 || blocks[blocks.length - 1].type === schema.nodes.frontmatter) {
     blocks.push(schema.nodes.paragraph.create())
   }
   const doc = schema.nodes.doc.createAndFill(null, blocks)
   if (!doc) throw new Error('Markdown 解析结果不符合文档结构(frontmatter 只能位于文首)')
+  lap('assemble')
 
   return { doc, meta: { lineEnding, bom, leading, trailing, bullet: detectBullet(text) } }
 }

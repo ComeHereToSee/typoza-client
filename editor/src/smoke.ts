@@ -2,6 +2,8 @@
 // 在临时目录写一篇带图片 / 表格 / 动图的文档 → 打开 → 双击表格里的图片 → 确认灯箱打开且图片真的加载出来。
 import { TextSelection } from 'prosemirror-state'
 import type { App } from './app/app'
+import { createEditorState } from './core/editor'
+import { parseMarkdown, parseTimings } from './core/markdown/parse'
 import { DEMO_MARKDOWN, TINY_GIF, sampleSvg } from './demo'
 
 export interface SmokeResult {
@@ -65,7 +67,25 @@ export async function runSmoke(app: App, bootTimings: Record<string, number> = {
     const big = bigMarkdown(5 * 1024 * 1024)
     await host.writeText(`${dir}/big.md`, big)
     timings.bigBytes = new TextEncoder().encode(big).length
+    // 先分段(解析各阶段 / 建状态 / 渲染 DOM / 首帧)找瓶颈,再走真实的打开流程计总时
     let t = performance.now()
+    const parsed = parseMarkdown(big, { inlineMath: true })
+    timings.bigParseMs = Math.round(performance.now() - t)
+    for (const [k, v] of Object.entries(parseTimings)) timings[`bigParse_${k}`] = v
+    t = performance.now()
+    const state = createEditorState(parsed.doc, app.env)
+    timings.bigStateMs = Math.round(performance.now() - t)
+    t = performance.now()
+    app.view.updateState(state)
+    timings.bigRenderMs = Math.round(performance.now() - t)
+    t = performance.now()
+    await nextFrame()
+    timings.bigFrameMs = Math.round(performance.now() - t)
+    // 换回小文档(同时量拆除大文档的耗时),避免下面真实打开时复用刚渲染的 DOM 而失真
+    t = performance.now()
+    app.view.updateState(createEditorState(parseMarkdown('# 换场\n', { inlineMath: true }).doc, app.env))
+    timings.bigTeardownMs = Math.round(performance.now() - t)
+    t = performance.now()
     await app.openFile(`${dir}/big.md`, { replace: true })
     await nextFrame()
     timings.bigOpenMs = Math.round(performance.now() - t)
