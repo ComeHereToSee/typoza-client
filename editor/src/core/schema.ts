@@ -127,9 +127,10 @@ const nodes: Record<string, NodeSpec> = {
   },
 
   // checked: null = 普通列表项;true/false = 任务项(GFM `- [ ]`,Notion 的待办)
+  // 列表项第一块可以不是段落(如直接以代码块开头,CommonMark 允许),所以是 block+ 而不是 paragraph block*
   list_item: {
     attrs: { checked: { default: null } },
-    content: 'paragraph block*',
+    content: 'block+',
     defining: true,
     parseDOM: [
       {

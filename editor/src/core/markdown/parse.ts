@@ -215,7 +215,7 @@ class ToProseMirror {
   private listItem(item: ListItem): PMNode {
     const n = schema.nodes
     const content = this.blocks(item.children)
-    if (content.length === 0 || content[0].type !== n.paragraph) content.unshift(n.paragraph.create())
+    if (content.length === 0) content.push(n.paragraph.create())
     return n.list_item.create({ checked: item.checked ?? null }, content)
   }
 

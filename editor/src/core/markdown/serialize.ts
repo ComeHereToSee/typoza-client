@@ -34,24 +34,43 @@ export interface SerializeOptions {
 
 export function serializeMarkdown(doc: PMNode, meta: DocMeta, options: SerializeOptions): string {
   const md = markdownOptions(meta, options)
+  const children: PMNode[] = []
+  doc.forEach((node) => children.push(node))
   const parts: string[] = []
-  let prev: { node: PMNode; src: BlockSource | undefined } | null = null
+  const markers = new Map<PMNode, string>()
   let firstSourcedAtZero = false
 
-  doc.forEach((node, _offset, index) => {
+  children.forEach((node, index) => {
     const src = blockSources.get(node)
     if (index === 0) firstSourcedAtZero = src?.index === 0
-    // 文首的分割线写成 ***:写 --- 会被当成 YAML front matter 的开头
-    const text = src ? src.text : index === 0 && node.type === schema.nodes.horizontal_rule ? '***' : serializeBlock(node, md)
-    if (prev) {
-      let gap = '\n\n'
-      if (src && prev.src && src.index === prev.src.index + 1) gap = src.gapBefore
-      // 两个同类列表相邻会在重新解析时合成一个列表,中间插一个空注释隔开
-      else if (sameListKind(prev.node, node)) gap = '\n\n<!-- -->\n\n'
-      parts.push(gap)
+    let text: string
+    if (src) {
+      text = src.text
+    } else if (index === 0 && node.type === schema.nodes.horizontal_rule) {
+      // 文首的分割线写成 ***:写 --- 会被当成 YAML front matter 的开头
+      text = '***'
+    } else if (isList(node)) {
+      // 相邻的同类列表必须用不同的标记符,否则重新解析时会并成一个列表
+      const avoid = new Set<string>()
+      for (const neighbor of [children[index - 1], children[index + 1]]) {
+        if (neighbor && neighbor.type === node.type) {
+          const known = markers.get(neighbor) ?? sourcedMarker(neighbor)
+          if (known) avoid.add(known)
+        }
+      }
+      const marker = pickMarker(node, meta, avoid)
+      markers.set(node, marker)
+      const opts = node.type === schema.nodes.ordered_list ? { ...md, bulletOrdered: marker as '.' | ')' } : { ...md, bullet: marker as '-' | '*' | '+', bulletOther: marker === '-' ? ('*' as const) : ('-' as const) }
+      text = serializeBlock(node, opts)
+    } else {
+      text = serializeBlock(node, md)
+    }
+    if (index > 0) {
+      const prev = children[index - 1]
+      const prevSrc = blockSources.get(prev)
+      parts.push(src && prevSrc && src.index === prevSrc.index + 1 ? src.gapBefore : '\n\n')
     }
     parts.push(text)
-    prev = { node, src }
   })
 
   let out = (firstSourcedAtZero ? meta.leading : '') + parts.join('') + meta.trailing
@@ -60,9 +79,21 @@ export function serializeMarkdown(doc: PMNode, meta: DocMeta, options: Serialize
   return (meta.bom ? '\uFEFF' : '') + out
 }
 
-function sameListKind(a: PMNode, b: PMNode): boolean {
-  const lists = [schema.nodes.bullet_list, schema.nodes.ordered_list]
-  return a.type === b.type && lists.includes(a.type)
+function isList(node: PMNode): boolean {
+  return node.type === schema.nodes.bullet_list || node.type === schema.nodes.ordered_list
+}
+
+/** 未编辑的列表从原文读出它用的标记符(无序列表的 -*+,有序列表的 . 或 ))。 */
+function sourcedMarker(node: PMNode): string | null {
+  const src = blockSources.get(node)
+  if (!src) return null
+  if (node.type === schema.nodes.ordered_list) return /^\s*\d+([.)])/.exec(src.text)?.[1] ?? null
+  return /^\s*([-*+])/.exec(src.text)?.[1] ?? null
+}
+
+function pickMarker(node: PMNode, meta: DocMeta, avoid: Set<string>): string {
+  const pool = node.type === schema.nodes.ordered_list ? ['.', ')'] : [meta.bullet, '-', '*', '+']
+  return pool.find((m) => !avoid.has(m)) ?? pool[0]
 }
 
 /** 单个块序列化(不带结尾换行)。也用于「复制为 Markdown」。 */
@@ -169,7 +200,11 @@ const handlers: Record<string, Handle> = {
   link(node: Link, parent, state, info) {
     // GFM 裸链接(原文就是一个网址)编辑后仍写成裸网址,而不是 <网址>;链接文字被改过就按普通链接写
     const only = node.children.length === 1 ? node.children[0] : null
-    if (node.data?.tzAutolink && only?.type === 'text' && only.value === node.url) return node.url
+    if (node.data?.tzAutolink && only?.type === 'text') {
+      if (only.value === node.url) return node.url
+      // GFM 裸邮箱:链接地址是 mailto:xxx,文字是 xxx
+      if (node.url === `mailto:${only.value}`) return only.value
+    }
     return defaultHandlers.link(node, parent, state, info)
   },
 }

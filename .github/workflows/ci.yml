@@ -34,7 +34,7 @@ jobs:
         id: build
         run: ../ci/step.sh build npm run build
       - uses: actions/upload-artifact@v4
-        if: steps.build.outcome == 'success'
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         with:
           name: editor-dist
           path: editor/dist
@@ -46,10 +46,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: ../ci/step.sh unit npx vitest run --reporter=verbose
       - name: playwright install
-        if: steps.build.outcome == 'success'
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: ../ci/step.sh playwright-install npx playwright install --with-deps webkit
       - name: e2e
-        if: steps.build.outcome == 'success'
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: ../ci/step.sh e2e npx playwright test
       - name: publish
         if: always()
@@ -119,10 +119,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: ci/step.sh package scripts/build-app.sh "$RUNNER_TEMP/build"
       - name: smoke
-        if: steps.package.outcome == 'success'
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
         run: ci/step.sh smoke ci/smoke-macos.sh "$RUNNER_TEMP/build/Typoza.app" "$CI_OUT/smoke"
       - name: dmg
-        if: steps.package.outcome == 'success'
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
         run: |
           mkdir -p "$CI_OUT/artifacts"
           ci/step.sh dmg scripts/make-dmg.sh "$RUNNER_TEMP/build/Typoza.app" "$CI_OUT/artifacts/Typoza.dmg"
