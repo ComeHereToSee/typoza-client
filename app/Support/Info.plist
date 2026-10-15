@@ -27,6 +27,14 @@
 			<array><string>net.daringfireball.markdown</string></array>
 		</dict>
 		<dict>
+			<key>CFBundleTypeName</key><string>TextBundle</string>
+			<key>CFBundleTypeRole</key><string>Editor</string>
+			<key>LSHandlerRank</key><string>Alternate</string>
+			<key>LSTypeIsPackage</key><true/>
+			<key>LSItemContentTypes</key>
+			<array><string>org.textbundle.package</string></array>
+		</dict>
+		<dict>
 			<key>CFBundleTypeName</key><string>纯文本</string>
 			<key>CFBundleTypeRole</key><string>Editor</string>
 			<key>LSHandlerRank</key><string>Alternate</string>
@@ -50,8 +58,18 @@
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>
-				<array><string>md</string><string>markdown</string><string>mdown</string><string>mkd</string><string>mkdn</string><string>mdwn</string><string>mdtxt</string><string>mdtext</string></array>
+				<array><string>md</string><string>markdown</string><string>mmd</string><string>mdown</string><string>mkd</string><string>mkdn</string><string>mdwn</string><string>mdtxt</string><string>mdtext</string><string>rmd</string><string>rmarkdown</string></array>
 				<key>public.mime-type</key><string>text/markdown</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key><string>org.textbundle.package</string>
+			<key>UTTypeDescription</key><string>TextBundle</string>
+			<key>UTTypeConformsTo</key><array><string>com.apple.package</string><string>public.composite-content</string></array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array><string>textbundle</string></array>
 			</dict>
 		</dict>
 	</array>

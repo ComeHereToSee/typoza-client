@@ -8,11 +8,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let smokeOut: URL?
     let settings = SettingsStore()
     let history = HistoryStore()
+    let drafts = DraftStore()
     let helper = HelperManager()
     private(set) var windows: [DocumentWindowController] = []
     private var closedPaths: [String] = []
-    private let recentMenu = NSMenu(title: "打开最近使用")
+    private let recentMenu = NSMenu(title: "打开最近文件")
+    private let recentFoldersMenu = NSMenu(title: "最近使用的目录")
+    private let servicesMenu = NSMenu(title: "服务")
     private var appearanceObservation: NSKeyValueObservation?
+    private var keyMonitor: Any?
+    /// 首次启动打开欢迎文档(对照表 H-06)
+    private static let welcomeShownKey = "TypozaWelcomeShown"
 
     /// 启动各阶段相对进程起点的秒数(冒烟报告里分析冷启动用)
     private(set) var launchMarks: [String: Double] = [:]
@@ -50,17 +56,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
         mark("willFinishLaunching")
         recentMenu.delegate = self
-        NSApp.mainMenu = MainMenu.build(recentMenu: recentMenu, windowMenu: NSMenu(title: "窗口"), helpMenu: NSMenu(title: "帮助"))
+        recentFoldersMenu.delegate = self
+        NSApp.mainMenu = MainMenu.build(recentMenu: recentMenu, recentFoldersMenu: recentFoldersMenu, servicesMenu: servicesMenu, windowMenu: NSMenu(title: "窗口"), helpMenu: NSMenu(title: "帮助"))
         NSApp.windowsMenu = NSApp.mainMenu?.item(withTitle: "窗口")?.submenu
         NSApp.helpMenu = NSApp.mainMenu?.item(withTitle: "帮助")?.submenu
+        // 应用菜单「服务」子菜单由系统填充(对照表 A-05)
+        NSApp.servicesMenu = servicesMenu
         NSWindow.allowsAutomaticWindowTabbing = true
         // 首个窗口在这里就建,不等 didFinishLaunching:网页进程的启动与 AppKit 余下的启动并行,冷启动约快 0.15 秒。
         // 随后 Finder 传来的文件(application(_:open:))会直接用这个空白窗口打开。
         let paths = commandLinePaths()
         if paths.isEmpty {
-            newWindow(open: nil)
+            let first = newWindow(open: nil)
+            if smokeOut == nil { restoreDrafts(into: first) }
         } else {
             for (path, isDir) in paths { open(path: path, isDir: isDir, newWindow: true) }
+            if smokeOut == nil { restoreDrafts(into: nil) }
+        }
+    }
+
+    /// 上次没保存的新文档(退出、崩溃或强退时留下的草稿)恢复到标签里(PRD 3.1 未命名草稿)
+    private func restoreDrafts(into first: DocumentWindowController?) {
+        var ids = drafts.list()[...]
+        guard !ids.isEmpty else { return }
+        if let first, first.isBlank { first.pendingDraft = ids.removeFirst() }
+        let parent = first?.window ?? windows.first?.window
+        for id in ids { newWindow(open: nil, asTabOf: parent).pendingDraft = id }
+    }
+
+    /// 文件菜单「恢复未保存的草稿」(对照表 PF-06):没在任何标签里的草稿都开出来;没有就打开草稿文件夹
+    private func recoverDrafts() {
+        let inUse = Set(windows.compactMap { $0.draftId ?? $0.pendingDraft })
+        let orphans = drafts.list().filter { !inUse.contains($0) }
+        guard orphans.isEmpty else {
+            let parent = NSApp.keyWindow
+            for id in orphans { newWindow(open: nil, asTabOf: parent).pendingDraft = id }
+            return
+        }
+        do {
+            try FileManager.default.createDirectory(at: drafts.directory, withIntermediateDirectories: true)
+            NSWorkspace.shared.open(drafts.directory)
+        } catch {
+            NSAlert(error: error).runModal()
         }
     }
 
@@ -84,6 +121,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         appearanceObservation = NSApp.observe(\.effectiveAppearance) { [weak self] app, _ in
             let dark = app.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             self?.windows.forEach { $0.emit("app.appearance", ["dark": dark]) }
+        }
+        // ⇧⌘O 是快速打开的 Typora 别名(notion 5.2「快速打开 ⌘P(另 ⇧⌘O)」):一个菜单项只能挂一个键,别名在这里接
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard mods == [.command, .shift], event.charactersIgnoringModifiers?.lowercased() == "o", let self else { return event }
+            if let key = self.keyController { key.sendCommand("file.quickOpen") } else { self.newWindow(open: nil).sendCommandWhenReady("file.quickOpen") }
+            return nil
+        }
+        if smokeOut == nil, !UserDefaults.standard.bool(forKey: Self.welcomeShownKey) {
+            UserDefaults.standard.set(true, forKey: Self.welcomeShownKey)
+            openWelcome(reuseBlank: true)
         }
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -124,18 +172,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         windows.removeAll { $0 === controller }
     }
 
-    /// 打开文件:已在某个窗口里打开就切过去;当前窗口是空白新文档就直接用它;否则开新窗口。
-    func open(path: String, isDir: Bool, newWindow forceNew: Bool) {
-        if !isDir, let existing = windows.first(where: { $0.currentPath == path }) {
+    /// 打开文件:已在某个窗口里打开就切过去;当前窗口是空白新文档就直接用它;否则开新窗口(给了 tabOf 就开成它的标签)。
+    /// TextBundle 是文件夹包,按文档打开(对照表 X-53)。
+    func open(path: String, isDir: Bool, newWindow forceNew: Bool, tabOf parent: NSWindow? = nil) {
+        guard FileManager.default.fileExists(atPath: path) else {
+            showAlert("目标文件或文件夹不存在。", path)
+            return
+        }
+        let asDocument = !isDir || FileService.isTextBundle(path)
+        if asDocument, let existing = windows.first(where: { $0.isShowing(path) }) {
             existing.window?.makeKeyAndOrderFront(nil)
             return
         }
         if !forceNew, let key = keyController, key.isBlank {
-            key.load(path: path, isDir: isDir)
-            if !isDir { noteRecent(path) }
+            key.load(path: path, isDir: !asDocument)
+            if asDocument { noteRecent(path) }
             return
         }
-        newWindow(open: (path, isDir), asTabOf: nil)
+        newWindow(open: (path, !asDocument), asTabOf: parent)
+    }
+
+    /// 同一文件只开一处:别的窗口或标签已在编辑 path 时切过去并返回 true(PRD 3.1)
+    func focus(path: String, except controller: DocumentWindowController) -> Bool {
+        guard let other = windows.first(where: { $0 !== controller && $0.isShowing(path) }) else { return false }
+        other.window?.makeKeyAndOrderFront(nil)
+        return true
+    }
+
+    private func showAlert(_ title: String, _ message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.runModal()
     }
 
     var keyController: DocumentWindowController? {
@@ -169,7 +237,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case "native.import":
             showImportPanel()
         case "native.welcome":
-            openWelcome()
+            openWelcome(reuseBlank: false)
+        case "native.recoverDrafts":
+            recoverDrafts()
+        case "native.checkUpdates":
+            checkForUpdates()
+        case "native.website", "native.feedback":
+            if let url = Self.configuredURL(id == "native.website" ? "TypozaWebsiteURL" : "TypozaFeedbackURL") { NSWorkspace.shared.open(url) }
+        case let help where help.hasPrefix("native.help."):
+            openHelpDoc(String(help.dropFirst("native.help.".count)))
         default:
             if let key = keyController {
                 key.sendCommand(id)
@@ -214,20 +290,106 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private func openWelcome() {
+    private func openWelcome(reuseBlank: Bool) {
         guard let url = Bundle.main.resourceURL?.appendingPathComponent("editor/welcome.md"), FileManager.default.fileExists(atPath: url.path) else { return }
         let dir = AppPaths.support.appendingPathComponent("welcome", isDirectory: true)
         let target = dir.appendingPathComponent("快速上手.md")
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             if !FileManager.default.fileExists(atPath: target.path) { try FileManager.default.copyItem(at: url, to: target) }
+            open(path: target.path, isDir: false, newWindow: !reuseBlank)
+        } catch {
+            NSAlert(error: error).runModal()
+        }
+    }
+
+    /// 帮助菜单的文档(对照表 H-01、H-03~H-05、H-07):随应用打包在 editor/ 下。
+    /// 每次打开都换成应用自带的最新版并设为只读,改了也存不回去,输入时会提示只读。
+    static let helpDocs: [String: (file: String, title: String)] = [
+        "changelog": ("changelog.md", "更新日志"),
+        "markdown": ("markdown-reference.md", "Markdown 参考"),
+        "pandoc": ("pandoc.md", "安装与使用 Pandoc"),
+        "images": ("images.md", "使用图片"),
+        "acknowledgements": ("acknowledgements.md", "鸣谢"),
+        "privacy": ("privacy.md", "隐私条款"),
+    ]
+
+    private func openHelpDoc(_ key: String) {
+        guard let doc = Self.helpDocs[key] else {
+            showAlert("找不到帮助文档", key)
+            return
+        }
+        guard let source = Bundle.main.resourceURL?.appendingPathComponent("editor/\(doc.file)"), FileManager.default.fileExists(atPath: source.path) else {
+            showAlert("找不到帮助文档", doc.file)
+            return
+        }
+        let dir = AppPaths.support.appendingPathComponent("help", isDirectory: true)
+        let target = dir.appendingPathComponent("\(doc.title).md")
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            if windows.contains(where: { $0.isShowing(target.path) }) {
+                open(path: target.path, isDir: false, newWindow: true)
+                return
+            }
+            if FileManager.default.fileExists(atPath: target.path) { try FileManager.default.removeItem(at: target) }
+            try FileManager.default.copyItem(at: source, to: target)
+            try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: target.path)
             open(path: target.path, isDir: false, newWindow: true)
         } catch {
             NSAlert(error: error).runModal()
         }
     }
 
+    /// Info.plist 里配置的网址(官网、反馈);没有真实地址时不配置,对应菜单项置灰【待确认:官网与反馈地址】
+    static func configuredURL(_ key: String) -> URL? {
+        guard let text = Bundle.main.object(forInfoDictionaryKey: key) as? String, let url = URL(string: text), url.scheme == "https" else { return nil }
+        return url
+    }
+
+    /// 检查更新(对照表 A-04):更新源地址写在 Info.plist 的 TypozaUpdateFeedURL;没配置时如实说明无法在线检查。
+    private func checkForUpdates() {
+        let current = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+        guard let feed = Self.configuredURL("TypozaUpdateFeedURL") else {
+            showAlert("无法检查更新", "这个版本还没有接入更新服务,暂时不能在线检查。当前版本 \(current)。")
+            return
+        }
+        let request = URLRequest(url: feed, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if let error {
+                    self.showAlert("检查更新失败", error.localizedDescription)
+                    return
+                }
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                guard let data, status == 200 else {
+                    self.showAlert("检查更新失败", "更新服务返回异常(HTTP \(status))")
+                    return
+                }
+                do {
+                    let release = try UpdateCheck.parse(data)
+                    guard UpdateCheck.isNewer(release.version, than: current) else {
+                        self.showAlert("当前已是最新!", "当前版本 \(current)。")
+                        return
+                    }
+                    let alert = NSAlert()
+                    alert.messageText = "发现新版本 \(release.version)"
+                    alert.informativeText = release.notes.isEmpty ? "当前版本 \(current)。" : release.notes
+                    alert.addButton(withTitle: "下载")
+                    alert.addButton(withTitle: "以后再说")
+                    if alert.runModal() == .alertFirstButtonReturn { NSWorkspace.shared.open(release.url) }
+                } catch {
+                    self.showAlert("检查更新失败", error.localizedDescription)
+                }
+            }
+        }.resume()
+    }
+
     func menuNeedsUpdate(_ menu: NSMenu) {
+        if menu === recentFoldersMenu {
+            buildRecentFoldersMenu(menu)
+            return
+        }
         guard menu === recentMenu else { return }
         menu.removeAllItems()
         for url in NSDocumentController.shared.recentDocumentURLs {
@@ -238,12 +400,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(item)
         }
         if menu.items.isEmpty {
-            menu.addItem(NSMenuItem(title: "无", action: nil, keyEquivalent: ""))
+            menu.addItem(NSMenuItem(title: "空", action: nil, keyEquivalent: ""))
         }
         menu.addItem(.separator())
-        let clear = NSMenuItem(title: "清除菜单", action: #selector(clearRecent(_:)), keyEquivalent: "")
+        let clear = NSMenuItem(title: "清除最近文件", action: #selector(clearRecent(_:)), keyEquivalent: "")
         clear.target = self
         menu.addItem(clear)
+    }
+
+    /// 最近使用的目录(对照表 F-06、S-18):固定的在前。列表由网页写进偏好设置(recentFolders、pinnedFolders)。
+    private func buildRecentFoldersMenu(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let stored: [String: Any]
+        do {
+            stored = try settings.load()
+        } catch {
+            menu.addItem(NSMenuItem(title: "读取失败:\(error.localizedDescription)", action: nil, keyEquivalent: ""))
+            return
+        }
+        let pinned = stored["pinnedFolders"] as? [String] ?? []
+        let recent = (stored["recentFolders"] as? [String] ?? []).filter { !pinned.contains($0) }
+        let add = { (path: String, isPinned: Bool) in
+            let item = NSMenuItem(title: (path as NSString).lastPathComponent, action: #selector(self.openRecentFolder(_:)), keyEquivalent: "")
+            item.representedObject = path
+            item.toolTip = path
+            item.target = self
+            if isPinned { item.state = .on }
+            menu.addItem(item)
+        }
+        pinned.forEach { add($0, true) }
+        if !pinned.isEmpty && !recent.isEmpty { menu.addItem(.separator()) }
+        recent.forEach { add($0, false) }
+        if menu.items.isEmpty { menu.addItem(NSMenuItem(title: "空", action: nil, keyEquivalent: "")) }
+        menu.addItem(.separator())
+        let clear = NSMenuItem(title: "清除最近使用的目录", action: #selector(clearRecentFolders(_:)), keyEquivalent: "")
+        clear.target = self
+        menu.addItem(clear)
+    }
+
+    @objc private func openRecentFolder(_ sender: NSMenuItem) {
+        guard let path = sender.representedObject as? String else { return }
+        guard FileManager.default.fileExists(atPath: path) else {
+            showAlert("目标文件或文件夹不存在。", path)
+            return
+        }
+        if let key = keyController {
+            key.load(path: path, isDir: true)
+            key.window?.makeKeyAndOrderFront(nil)
+        } else {
+            newWindow(open: (path, true))
+        }
+    }
+
+    @objc private func clearRecentFolders(_ sender: NSMenuItem) {
+        do {
+            try settings.merge(["recentFolders": [String]()])
+        } catch {
+            NSAlert(error: error).runModal()
+        }
     }
 
     @objc private func openRecent(_ sender: NSMenuItem) {
@@ -276,12 +490,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         first.window?.makeKeyAndOrderFront(nil)
-        first.prepareClose { ok in
+        first.prepareClose(reason: "quit") { ok in
             if !ok {
                 completion(false)
                 return
             }
             self.confirmSequentially(Array(list.dropFirst()), completion: completion)
+        }
+    }
+}
+
+// 官网、反馈没有配置地址时菜单项置灰,不放假链接
+extension AppDelegate: NSMenuItemValidation {
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.representedObject as? String {
+        case "native.website": return Self.configuredURL("TypozaWebsiteURL") != nil
+        case "native.feedback": return Self.configuredURL("TypozaFeedbackURL") != nil
+        default: return true
         }
     }
 }

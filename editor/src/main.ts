@@ -9,7 +9,7 @@ import { type SmokeResult, runSmoke } from './smoke'
 
 declare global {
   interface Window {
-    typoza: { smoke(): Promise<SmokeResult>; markdown(): string; prepareClose(): Promise<boolean> }
+    typoza: { smoke(): Promise<SmokeResult>; markdown(): string; prepareClose(reason?: string): Promise<boolean> }
     typozaTest?: { host: MemoryHost; app: App; load(markdown: string, path?: string): Promise<void>; markdown(): string; parse: typeof parseMarkdown }
   }
 }
@@ -48,7 +48,7 @@ async function boot(): Promise<void> {
       parse: parseMarkdown,
     }
   }
-  window.typoza = { smoke: () => runSmoke(app, bootTimings), markdown: () => app.markdown(), prepareClose: () => app.confirmLeave() }
+  window.typoza = { smoke: () => runSmoke(app, bootTimings), markdown: () => app.markdown(), prepareClose: (reason) => app.confirmLeave(reason === 'quit' ? 'quit' : 'close') }
   document.documentElement.dataset.ready = 'true'
   void window.webkit?.messageHandlers?.typoza?.postMessage({ method: 'app.ready', params: {} })
 }

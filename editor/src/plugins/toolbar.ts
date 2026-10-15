@@ -1,16 +1,16 @@
-// 选中文字时的浮动格式条(Notion)、链接编辑与悬停卡片、⌘/「转换为」菜单。
+// 选中文字时的浮动格式条(Notion)、⌘/「转换为」菜单;链接的单击浮层、悬停预览与 ⌘K 见 linkcard.ts。
 import type { MarkType } from 'prosemirror-model'
 import { NodeSelection, Plugin, type EditorState } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
-import { currentBlockKind, markRange, removeLink, setLink } from '../core/commands'
+import { currentBlockKind, markRange } from '../core/commands'
 import type { EditorEnv } from '../core/env'
 import { openHref } from '../core/links'
 import { registerCommand, runCommand } from '../core/registry'
 import { schema } from '../core/schema'
 import { ICONS, h, svgIcon } from '../ui/dom'
 import { FloatingMenu } from '../ui/menu'
-import { promptInput } from '../ui/prompt'
 import { BLOCK_KINDS, colorItems, turnIntoItems } from './items'
+import { clickTarget, DRAG_PATH_TYPE, editLink, insertFileLink, LinkCard } from './linkcard'
 
 const m = schema.marks
 
@@ -20,31 +20,9 @@ function isMarkActive(state: EditorState, type: MarkType): boolean {
   return state.doc.rangeHasMark(from, to, type)
 }
 
-/** ⌘K:编辑选区或光标所在链接;地址留空即移除链接。 */
-export async function editLink(view: EditorView): Promise<void> {
-  const { $from, from, to, empty } = view.state.selection
-  const existing = markRange($from, m.link)
-  if (empty && !existing) {
-    // 没有选中文字:插入一个以网址为文字的链接
-  }
-  const coords = view.coordsAtPos(from)
-  const href = await promptInput({
-    title: existing ? '编辑链接' : '添加链接',
-    placeholder: '粘贴网址,或输入文档相对路径 / #标题',
-    value: existing?.mark.attrs.href ?? '',
-    anchor: { left: coords.left, top: coords.top, bottom: view.coordsAtPos(to).bottom },
-  })
-  view.focus()
-  if (href === null) return
-  if (href === '') {
-    removeLink(view.state, view.dispatch)
-    return
-  }
-  setLink(href)(view.state, view.dispatch)
-}
-
 export function toolbarPlugin(env: EditorEnv): Plugin {
-  registerCommand({ id: 'format.link', label: '链接', run: (view) => (void editLink(view), true) })
+  registerCommand({ id: 'format.link', label: '链接', run: (view) => (void editLink(view, env), true) })
+  let card: LinkCard | null = null
   const turnMenu = new FloatingMenu({ className: 'tz-turn-menu' })
   registerCommand({
     id: 'block.turnIntoMenu',
@@ -65,24 +43,62 @@ export function toolbarPlugin(env: EditorEnv): Plugin {
         return false
       },
       handleClick(view, pos, event) {
-        if (!(event.metaKey || event.ctrlKey)) return false
-        const $pos = view.state.doc.resolve(pos)
-        const link = markRange($pos, m.link)
+        const link = markRange(view.state.doc.resolve(pos), m.link)
         if (!link) return false
-        openHref(view, env, link.mark.attrs.href, event.shiftKey)
+        // ⌘+点击直接打开(本地文档开新标签),⌥⇧+点击开新窗口(PRD 3.1、3.2);单击显示链接浮层
+        const where = clickTarget(event)
+        if (where) {
+          openHref(view, env, link.mark.attrs.href, where)
+          return true
+        }
+        const anchor = event.target instanceof Element ? event.target.closest('a[href]') : null
+        if (anchor && card) card.showFor(anchor, pos)
+        return false
+      },
+      handleDOMEvents: {
+        // ⌥⇧+点击:ProseMirror 对按住 ⇧ 的点击走默认的扩选、不调 handleClick,所以在按下时就截住
+        mousedown(view, event) {
+          if (!(event.altKey && event.shiftKey) || event.button !== 0) return false
+          const anchor = event.target instanceof Element ? event.target.closest('a[href]') : null
+          if (!anchor || !view.dom.contains(anchor)) return false
+          const link = markRange(view.state.doc.resolve(view.posAtDOM(anchor, 0)), m.link)
+          if (!link) return false
+          event.preventDefault()
+          openHref(view, env, link.mark.attrs.href, 'window')
+          return true
+        },
+      },
+      handleDrop(view, event) {
+        const path = event.dataTransfer?.getData(DRAG_PATH_TYPE)
+        if (!path) return false
+        event.preventDefault()
+        insertFileLink(view, env, path, { left: event.clientX, top: event.clientY })
         return true
       },
     },
-    view: (view) => new SelectionToolbar(view, env),
+    view: (view) => {
+      const toolbar = new SelectionToolbar(view, env)
+      const links = new LinkCard(view, env)
+      card = links
+      return {
+        update: (v: EditorView, prev: EditorState) => {
+          toolbar.update(v, prev)
+          links.update(v, prev)
+        },
+        destroy: () => {
+          toolbar.destroy()
+          links.destroy()
+          if (card === links) card = null
+        },
+      }
+    },
   })
 }
 
 class SelectionToolbar {
   private readonly el: HTMLDivElement
-  private readonly hover: HTMLDivElement
   private readonly menu = new FloatingMenu({ className: 'tz-toolbar-menu' })
   private mouseDown = false
-  private hoverTimer = 0
   private readonly onDown = () => {
     this.mouseDown = true
     this.hide()
@@ -91,7 +107,6 @@ class SelectionToolbar {
     this.mouseDown = false
     setTimeout(() => this.update(this.view), 0)
   }
-  private readonly onOver = (e: MouseEvent) => this.trackHover(e)
 
   constructor(
     private readonly view: EditorView,
@@ -99,13 +114,9 @@ class SelectionToolbar {
   ) {
     this.el = h('div', { class: 'tz-toolbar', hidden: true })
     this.el.addEventListener('mousedown', (e) => e.preventDefault())
-    this.hover = h('div', { class: 'tz-popover tz-link-hover', hidden: true })
-    this.hover.addEventListener('mouseenter', () => clearTimeout(this.hoverTimer))
-    this.hover.addEventListener('mouseleave', () => this.hideHover())
-    document.body.append(this.el, this.hover)
+    document.body.append(this.el)
     view.dom.addEventListener('mousedown', this.onDown)
     document.addEventListener('mouseup', this.onUp)
-    view.dom.addEventListener('mouseover', this.onOver)
   }
 
   private button(label: string | Node, title: string, run: () => void, active = false, cls = ''): HTMLButtonElement {
@@ -144,7 +155,7 @@ class SelectionToolbar {
     this.el.replaceChildren(
       turn,
       h('span', { class: 'tz-tb-sep' }),
-      this.button(svgIcon(ICONS.link, 15), '链接(⌘K)', () => void editLink(view), isMarkActive(state, m.link)),
+      this.button(svgIcon(ICONS.link, 15), '链接(⌘K)', () => void editLink(view, this.env), isMarkActive(state, m.link)),
       h('span', { class: 'tz-tb-sep' }),
       this.button(h('b', null, 'B'), '加粗(⌘B)', cmd('format.bold'), isMarkActive(state, m.strong)),
       this.button(h('i', null, 'I'), '斜体(⌘I)', cmd('format.italic'), isMarkActive(state, m.em)),
@@ -192,47 +203,10 @@ class SelectionToolbar {
     this.el.hidden = true
   }
 
-  // ---------- 链接悬停卡片 ----------
-
-  private trackHover(e: MouseEvent): void {
-    const a = (e.target as HTMLElement).closest('a[href]')
-    if (!a || !this.view.dom.contains(a) || a.classList.contains('tz-wikilink') || a.closest('.tz-media, .tz-html-preview')) {
-      clearTimeout(this.hoverTimer)
-      this.hoverTimer = window.setTimeout(() => this.hideHover(), 300)
-      return
-    }
-    clearTimeout(this.hoverTimer)
-    const href = a.getAttribute('href') ?? ''
-    this.hover.replaceChildren(
-      h('span', { class: 'tz-link-url', title: href }, href),
-      this.button('打开', '打开链接(⌘ 点击)', () => {
-        const pos = this.view.posAtDOM(a, 0)
-        openHref(this.view, this.env, href, false)
-        void pos
-      }),
-      this.button('编辑', '编辑链接(⌘K)', () => {
-        const pos = this.view.posAtDOM(a, 0)
-        this.view.dispatch(this.view.state.tr.setSelection(NodeSelection.near(this.view.state.doc.resolve(pos + 1))))
-        this.hideHover()
-        void editLink(this.view)
-      }),
-    )
-    const r = a.getBoundingClientRect()
-    this.hover.hidden = false
-    this.hover.style.left = `${r.left}px`
-    this.hover.style.top = `${r.bottom + 4}px`
-  }
-
-  private hideHover(): void {
-    this.hover.hidden = true
-  }
-
   destroy(): void {
     this.view.dom.removeEventListener('mousedown', this.onDown)
     document.removeEventListener('mouseup', this.onUp)
-    this.view.dom.removeEventListener('mouseover', this.onOver)
     this.menu.close('api')
     this.el.remove()
-    this.hover.remove()
   }
 }

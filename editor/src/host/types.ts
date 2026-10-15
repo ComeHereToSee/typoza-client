@@ -9,6 +9,10 @@ export interface FileStat {
   size: number
   /** 修改时间,毫秒时间戳 */
   mtime: number
+  /** 创建时间,毫秒时间戳(取不到时省略) */
+  ctime?: number
+  /** 能否写入(文件本身与所在文件夹都可写);省略表示未知,按可写处理 */
+  writable?: boolean
 }
 
 export interface ReadResult {
@@ -24,10 +28,16 @@ export interface SearchOptions {
   wholeWord: boolean
   /** 最多返回多少个文件 */
   limit: number
+  /** 只搜这些文件(侧栏分批搜索,边搜边显示);省略时搜 root 下全部可打开文件 */
+  paths?: string[]
+  /** 命中行累计到这个数就停(PRD 3.9:超过 1000 处提示「匹配结果过多」) */
+  maxMatches?: number
 }
 
 export interface SearchHit {
   path: string
+  /** 文件名本身匹配(PRD 3.9 全局搜索文件名与正文) */
+  nameMatch?: boolean
   /** 命中行(去掉首尾空白,最长 200 字符) */
   matches: { line: number; text: string }[]
 }
@@ -46,6 +56,20 @@ export interface HistoryEntry {
   time: number
   size: number
   source: 'local' | 'cloud'
+}
+
+/** 历史版本还在、文件已不在原位置的文档(PRD 3.14「已删除的文件」) */
+export interface DeletedHistoryFile {
+  path: string
+  /** 最近一个版本的时间,毫秒时间戳 */
+  time: number
+  count: number
+}
+
+/** 外壳要求本窗口恢复的未命名草稿 */
+export interface DraftRestore {
+  id: string
+  text: string
 }
 
 export type ExportFormat =
@@ -120,11 +144,14 @@ export interface Host {
   listDir(path: string): Promise<FileStat[]>
   mkdir(path: string): Promise<void>
   rename(from: string, to: string): Promise<void>
-  trash(path: string): Promise<void>
+  /** 移到废纸篓;返回它在废纸篓里的路径(撤销用),拿不到时为 null */
+  trash(path: string): Promise<string | null>
   watch(paths: string[]): Promise<void>
   search(root: string, query: string, options: SearchOptions): Promise<SearchHit[]>
   /** 列出目录下全部 Markdown 文件(递归,用于快速打开与 [[ 链接) */
   listMarkdown(root: string): Promise<string[]>
+  /** 各文件的第一个标题(快速打开按标题匹配),与 paths 一一对应;没有标题为 null */
+  firstHeadings(paths: string[]): Promise<(string | null)[]>
 
   // 窗口与系统
   setWindowState(state: WindowState): void
@@ -133,8 +160,18 @@ export interface Host {
   confirm(options: ConfirmOptions): Promise<number>
   revealInFinder(path: string): Promise<void>
   openExternal(url: string): Promise<void>
-  /** 在 Typoza 里打开另一个文档(newWindow 时开新标签页) */
-  openDocument(path: string, options?: { newWindow?: boolean }): Promise<void>
+  /** 在 Typoza 里另开一个文档:tab 开成当前窗口组里的新标签,newWindow 开新窗口;已在别处打开时切过去 */
+  openDocument(path: string, options?: { newWindow?: boolean; tab?: boolean }): Promise<void>
+  /** 这个文件已在别的窗口或标签里打开时切过去并返回 true(同一文件只开一处) */
+  focusDocument(path: string): Promise<boolean>
+  /** 快速查看(Quick Look) */
+  quickLook(path: string): Promise<void>
+  /** 选一个应用打开(打开方式…) */
+  openWith(path: string): Promise<void>
+  /** 写入系统剪贴板(不依赖用户手势,保存失败兜底用) */
+  writeClipboard(text: string): Promise<void>
+  /** 读系统剪贴板文字(⌘K 预填网址) */
+  readClipboard(): Promise<string>
   /** 用系统默认应用打开本机文件(附件块) */
   openWithDefaultApp(path: string): Promise<void>
   copyImageToClipboard(path: string): Promise<void>
@@ -149,6 +186,14 @@ export interface Host {
   // 本地历史版本
   historyList(path: string): Promise<HistoryEntry[]>
   historyRead(path: string, id: string): Promise<string>
+  /** 把一段内容记成不会被合并掉的快照(恢复旧版本前先记下当前内容) */
+  historySnapshot(path: string, text: string): Promise<void>
+  historyDeleted(): Promise<DeletedHistoryFile[]>
+
+  // 未命名草稿(存 Typoza 数据目录,重启或网页进程崩溃后恢复)
+  draftSave(id: string, text: string): Promise<void>
+  draftRemove(id: string): Promise<void>
+  draftPending(): Promise<DraftRestore | null>
 
   // 导出与打印
   exportDocument(options: { format: ExportFormat; html: string; markdown: string; sourcePath: string | null; target: string }): Promise<void>

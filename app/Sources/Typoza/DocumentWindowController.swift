@@ -36,12 +36,22 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
     private var queuedCommands: [String] = []
     private var allowClose = false
     private(set) var currentPath: String?
+    /// 本窗口未命名文档的草稿编号(网页备份过才有);网页进程崩溃后据此恢复
+    private(set) var draftId: String?
+    /// 要求网页恢复的草稿(启动时恢复上次的未命名文档、崩溃后重载、「恢复未保存的草稿」)
+    var pendingDraft: String?
     private lazy var watcher = FileWatcher { [weak self] paths in
         self?.emit("fs.changed", ["paths": paths])
     }
 
-    /// 空白新文档(没打开文件、没修改),可以直接拿来打开别的文件
-    var isBlank: Bool { currentPath == nil && window?.isDocumentEdited != true }
+    /// 空白新文档(没打开文件、没修改、没有待恢复的草稿),可以直接拿来打开别的文件
+    var isBlank: Bool { currentPath == nil && window?.isDocumentEdited != true && draftId == nil && pendingDraft == nil }
+
+    /// 这个窗口正在编辑 path(TextBundle 包:正在编辑包里的正文也算)
+    func isShowing(_ path: String) -> Bool {
+        guard let current = currentPath else { return false }
+        return current == path || (FileService.isTextBundle(path) && (current as NSString).deletingLastPathComponent == path)
+    }
 
     init(app: AppDelegate, open: (String, Bool)?, smokeOut: URL?) {
         self.app = app
@@ -114,13 +124,13 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
         }
     }
 
-    /// 关窗口或退出前:让网页保存或询问。
-    func prepareClose(_ completion: @escaping (Bool) -> Void) {
+    /// 关窗口或退出前:让网页保存或询问。reason 为 quit 时,未命名文档留草稿、下次启动恢复,不询问(自动保存开着时)。
+    func prepareClose(reason: String, _ completion: @escaping (Bool) -> Void) {
         guard ready else {
             completion(true)
             return
         }
-        webView.callAsyncJavaScript("return await window.typoza.prepareClose()", arguments: [:], in: nil, in: .page) { result in
+        webView.callAsyncJavaScript("return await window.typoza.prepareClose(reason)", arguments: ["reason": reason], in: nil, in: .page) { result in
             switch result {
             case .success(let value): completion((value as? Bool) ?? true)
             case .failure: completion(true)
@@ -174,11 +184,15 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
             NSLog("Typoza 网页启动失败:%@", msg)
             if let out = smokeOut { writeSmokeAndExit(["error": "网页启动失败:\(msg)"], to: out, code: 3) }
         case "app.openDocument":
+            // tab:开成本窗口组里的新标签;newWindow:开新窗口(PRD 3.1、notion 5.1 第 10、11 行)
             let path = params.optionalString("path") ?? ""
+            let tab = params.bool("tab")
             sync {
-                if path.isEmpty { app.newWindow(open: nil, asTabOf: params.bool("newWindow") ? nil : window) } else { app.open(path: path, isDir: false, newWindow: params.bool("newWindow")) }
+                if path.isEmpty { app.newWindow(open: nil, asTabOf: params.bool("newWindow") ? nil : window) } else { app.open(path: path, isDir: false, newWindow: params.bool("newWindow") || tab, tabOf: tab ? window : nil) }
                 return nil
             }
+        case "app.focusDocument":
+            sync { app.focus(path: try params.string("path"), except: self) }
 
         case "fs.readText":
             let encoding = params.optionalString("encoding")
@@ -188,7 +202,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
             background {
                 let path = try params.string("path")
                 let text = try params.string("text")
-                let isMarkdown = ["md", "markdown", "mdown", "mkd", "txt"].contains((path as NSString).pathExtension.lowercased())
+                let isMarkdown = FileService.isTextDocument(path)
                 if isMarkdown { try? history.snapshotBeforeWrite(path: path) }
                 let result = try FileService.writeText(path, text: text, encoding: params.optionalString("encoding"))
                 if isMarkdown, let data = FileManager.default.contents(atPath: path) { try? history.snapshotAfterWrite(path: path, data: data) }
@@ -215,24 +229,35 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
             }
         case "fs.rename":
             sync {
-                try FileService.rename(from: try params.string("from"), to: try params.string("to"))
+                let from = try params.string("from")
+                let to = try params.string("to")
+                try FileService.rename(from: from, to: to)
+                // 在 Typoza 里改名或移动后历史跟着走(PRD 3.14);历史搬不动不影响改名本身,记日志
+                do { try app.history.move(from: from, to: to) } catch { NSLog("Typoza:历史版本没能跟随改名 %@ → %@:%@", from, to, error.localizedDescription) }
                 return nil
             }
         case "fs.trash":
-            sync {
-                try FileService.trash(try params.string("path"))
-                return nil
-            }
+            sync { try FileService.trash(try params.string("path")) }
         case "fs.watch":
             watcher.watch(params.strings("paths"))
             reply(nil, nil)
         case "fs.search":
             background {
-                let options = SearchService.Options(regex: params.bool("regex"), caseSensitive: params.bool("caseSensitive"), wholeWord: params.bool("wholeWord"), limit: params.int("limit", default: 200))
+                let options = SearchService.Options(
+                    regex: params.bool("regex"),
+                    caseSensitive: params.bool("caseSensitive"),
+                    wholeWord: params.bool("wholeWord"),
+                    limit: params.int("limit", default: 200),
+                    paths: params.raw["paths"] == nil ? nil : params.strings("paths"),
+                    maxMatches: params.int("maxMatches", default: Int.max)
+                )
                 return try SearchService.search(root: try params.string("root"), query: try params.string("query"), options: options)
             }
         case "fs.listMarkdown":
             background { FileService.listMarkdown(try params.string("root")) }
+        case "fs.firstHeadings":
+            let paths = params.strings("paths")
+            background { paths.map { path -> Any in (FileService.firstHeading(atPath: path) as Any?) ?? NSNull() } }
 
         case "window.setState":
             let path = params.optionalString("path")
@@ -282,6 +307,25 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
                 pb.writeObjects([image, URL(fileURLWithPath: path) as NSURL])
                 return nil
             }
+        case "system.writeClipboard":
+            sync {
+                let text = try params.string("text")
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                guard pb.setString(text, forType: .string) else { throw BridgeError("写入剪贴板失败") }
+                return nil
+            }
+        case "system.readClipboard":
+            sync { NSPasteboard.general.string(forType: .string) ?? "" }
+        case "system.quickLook":
+            sync {
+                try QuickLookPreview.show(try params.string("path"))
+                return nil
+            }
+        case "system.openWith":
+            let path = params.optionalString("path") ?? ""
+            reply(nil, nil)
+            chooseAppAndOpen(path)
         case "net.linkPreview":
             guard let url = URL(string: (try? params.string("url")) ?? ""), url.scheme?.hasPrefix("http") == true else {
                 reply(nil, "网址无效")
@@ -312,6 +356,40 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
             sync { app.history.list(path: try params.string("path")) }
         case "history.read":
             sync { try app.history.read(path: try params.string("path"), id: try params.string("id")) }
+        case "history.snapshot":
+            let history = app.history
+            background {
+                try history.pin(path: try params.string("path"), data: Data(try params.string("text").utf8))
+                return nil
+            }
+        case "history.deleted":
+            let history = app.history
+            background { history.deletedFiles() }
+
+        case "draft.save":
+            let id = params.optionalString("id") ?? ""
+            draftId = id
+            let drafts = app.drafts
+            background {
+                try drafts.save(id: id, text: try params.string("text"))
+                return nil
+            }
+        case "draft.remove":
+            let id = params.optionalString("id") ?? ""
+            if draftId == id { draftId = nil }
+            let drafts = app.drafts
+            background {
+                try drafts.remove(id: id)
+                return nil
+            }
+        case "draft.pending":
+            sync {
+                guard let id = pendingDraft else { return nil }
+                pendingDraft = nil
+                let text = try app.drafts.read(id: id)
+                draftId = id
+                return ["id": id, "text": text]
+            }
 
         case "export.run":
             let pandocPath = (try? app.settings.load())?["pandocPath"] as? String
@@ -387,6 +465,24 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
         }
     }
 
+    /// 打开方式…(对照表 S-14):选一个应用打开文件
+    private func chooseAppAndOpen(_ path: String) {
+        guard let window else { return }
+        let panel = NSOpenPanel()
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        panel.allowedContentTypes = [.application]
+        panel.canChooseDirectories = false
+        panel.message = "选择用来打开「\((path as NSString).lastPathComponent)」的应用"
+        panel.prompt = "打开"
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, let app = panel.url else { return }
+            NSWorkspace.shared.open([URL(fileURLWithPath: path)], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration()) { _, error in
+                guard let error else { return }
+                DispatchQueue.main.async { NSAlert(error: error).runModal() }
+            }
+        }
+    }
+
     private func printDocument() {
         guard let window else { return }
         let info = NSPrintInfo.shared.copy() as! NSPrintInfo
@@ -403,7 +499,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if allowClose || !sender.isDocumentEdited { return true }
-        prepareClose { [weak self] ok in
+        prepareClose(reason: "close") { [weak self] ok in
             guard ok, let self else { return }
             self.allowClose = true
             self.window?.close()
@@ -428,10 +524,10 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
             return
         }
         decisionHandler(.cancel)
-        // 主框架要跳到别处:本机 Markdown 在 Typoza 里打开,其它交给系统
+        // 主框架要跳到别处:本机 Markdown 在 Typoza 里打开(本窗口组的新标签),其它交给系统
         if url.isFileURL {
-            if ["md", "markdown", "mdown", "mkd", "txt"].contains(url.pathExtension.lowercased()) {
-                app.open(path: url.path, isDir: false, newWindow: true)
+            if FileService.isTextDocument(url.path) || FileService.isTextBundle(url.path) {
+                app.open(path: url.path, isDir: false, newWindow: true, tabOf: window)
             } else {
                 NSWorkspace.shared.open(url)
             }
@@ -485,10 +581,10 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        // 网页进程崩溃:重新载入(自动保存已落盘;未保存的新文档内容会丢失,记日志)
+        // 网页进程崩溃:重新载入。有路径的文档自动保存已落盘;未命名文档从草稿恢复(停止输入 1 秒后备份过)
         NSLog("Typoza 网页进程意外退出,重新载入:%@", currentPath ?? "未命名")
         ready = false
-        if let path = currentPath { openRequest = (path, false) }
+        if let path = currentPath { openRequest = (path, false) } else if let id = draftId { pendingDraft = id }
         webView.load(URLRequest(url: TypozaSchemeHandler.appURL("index.html")))
     }
 

@@ -1,31 +1,39 @@
 // 应用主控:一个窗口 = 一个文档(可带一个根文件夹)。负责文档读写、侧栏、各类面板、应用级命令与宿主事件。
 import type { Node as PMNode } from 'prosemirror-model'
-import { TextSelection } from 'prosemirror-state'
+import { Selection, TextSelection } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
 import { collectHeadings, type HeadingItem } from '../core/blocks'
 import { createEditorState, createEditorView, sliceToMarkdown } from '../core/editor'
-import { type DocumentRef, type EditorEnv, DEFAULT_EDITOR_SETTINGS, type ImportFile } from '../core/env'
+import { type DocumentRef, type EditorEnv, DEFAULT_EDITOR_SETTINGS, type ImportFile, type OpenWhere } from '../core/env'
 import { detectEmbed } from '../core/embed'
+import { bundleOf, isTextBundle, TEXT_EXTENSIONS } from '../core/filetypes'
 import { scrollToAnchor } from '../core/links'
 import { parseMarkdown } from '../core/markdown/parse'
 import { basename, dirname, joinPath, markdownHref, relativePath, resolveLocalPath } from '../core/paths'
 import { registerCommand, runCommand } from '../core/registry'
 import { schema } from '../core/schema'
 import { setViewModes } from '../plugins/basics'
-import type { ExportFormat, Host } from '../host/types'
+import { buildPattern } from '../plugins/find'
+import type { DraftRestore, ExportFormat, FileStat, HistoryEntry, Host } from '../host/types'
 import { h } from '../ui/dom'
 import { closeLightbox, isLightboxOpen } from '../ui/lightbox'
 import { promptInput, validateUrl } from '../ui/prompt'
 import { resetMacros } from '../views/katex'
 import { importFile } from './assets'
 import { DocumentSession, frontMatterInfo, updateFrontMatterText } from './document'
+import { DraftKeeper, relocateDraftAssets } from './drafts'
 import { buildExportHtml } from './exporter'
-import { countWords, showHistory, showSettings, showWordCount } from './panels'
+import { FileOps } from './fileops'
+import { formatVersionTime, showHistory } from './historypanel'
+import { type LinkTarget, type NavEntry, NavHistory, resolveLinkTarget } from './navigation'
+import { countWords, showSettings, showWordCount } from './panels'
 import { SyncController } from './sync'
 import { showQuickOpen } from './quickopen'
 import { type AppSettings, loadSettings } from './settings'
-import { Sidebar, type SidebarTab } from './sidebar'
+import { type SearchFlags, Sidebar, type SidebarTab, showOutlinePopover } from './sidebar'
 import { SourceEditor } from './source'
+import { docPosToSource, sourceToDocPos } from './sourcemap'
+import { createTextBundle, textBundleText } from './textbundle'
 
 export interface AppOptions {
   host: Host
@@ -37,6 +45,13 @@ export interface AppOptions {
 }
 
 const AUTOSAVE_DELAY = 1000
+
+/** 超过这个大小以只读源码打开(PRD 3.1 异常、对照表 X-51)。【假设:阈值待研发压测后定;5MB 以内必须正常打开,先取 10MB】 */
+export const LARGE_FILE_BYTES = 10 * 1024 * 1024
+
+function errText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
 
 export class App {
   readonly host: Host
@@ -51,9 +66,14 @@ export class App {
   private autosaveTimer = 0
   private statusTimer = 0
   private systemDark: boolean
-  private navBack: { path: string; pos: number }[] = []
-  private navForward: { path: string; pos: number }[] = []
+  private readonly nav = new NavHistory()
   private recent: string[] = []
+  readonly drafts: DraftKeeper
+  readonly fileOps: FileOps
+  /** 只读文件已提示过(每次打开提示一次) */
+  private readOnlyWarned = false
+  /** 连续保存失败中:自动保存失败只在第一次把全文放进剪贴板,免得边打字边覆盖用户的剪贴板 */
+  private saveFailing = false
 
   constructor(private readonly options: AppOptions) {
     this.host = options.host
@@ -77,8 +97,22 @@ export class App {
         newDocument: () => void this.runAppCommand('file.newWindow'),
         importFiles: (view, files, at) => this.importFiles(view, files, at),
       },
-      openDocumentLink: (target, newWindow) => void this.openLink(target, newWindow),
+      openDocumentLink: (target, where) => void this.openLink(target, where),
     }
+    this.drafts = new DraftKeeper(this.host, () => this.session.serialize(this.currentDoc()), (message) => this.toast(message, true))
+    this.fileOps = new FileOps(this.host, {
+      toast: (message, error, action) => this.toast(message, error, action),
+      moved: (from, to) => this.onPathMoved(from, to),
+      trashed: (path) => this.onPathTrashed(path),
+      refresh: () => this.sidebar?.refresh(),
+      root: () => this.sidebar?.rootFolder ?? null,
+      saveCurrent: async () => {
+        if (this.session.dirty && this.session.path && !this.session.readOnly) await this.save()
+      },
+      rewritten: async (paths) => {
+        if (this.session.path && paths.includes(this.session.path)) await this.onExternalChange()
+      },
+    })
     const header = h('div', { class: 'tz-page-header' })
     const editor = h('div', { class: 'tz-editor-host' })
     const page = h('div', { class: 'tz-page', id: 'write-wrapper' }, header, editor)
@@ -94,7 +128,9 @@ export class App {
     this.settings = await loadSettings(this.host)
     this.syncEditorSettings()
     this.sidebar = new Sidebar(this.host, {
-      openFile: (path, newWindow) => void this.openFile(path, { newWindow }),
+      openFile: (path, where) => void this.openFile(path, { where }),
+      openAt: (path, line, query, flags) => void this.openAt(path, line, query, flags),
+      ops: this.fileOps,
       jumpToHeading: (item) => this.jumpToHeading(item),
       currentPath: () => this.session.path,
       onTabChange: (tab) => void this.updateSettings({ sidebarTab: tab, sidebarVisible: true }),
@@ -116,11 +152,15 @@ export class App {
       onUpdate: (v) => this.onEditorUpdate(v),
     })
     this.applyViewModes()
-    this.sidebar.setTab(this.settings.sidebarTab)
+    void this.sidebar.setTab(this.settings.sidebarTab)
 
-    if (this.options.openPath) {
-      if (this.options.openIsDir) this.sidebar.setRoot(this.options.openPath)
-      else await this.openFile(this.options.openPath, { replace: true })
+    // 重启或网页进程崩溃后,外壳要求本窗口恢复的未命名草稿(PRD 3.1)
+    const draft = await this.host.draftPending()
+    if (draft) this.restoreDraft(draft)
+    const openPath = this.options.openPath
+    if (openPath) {
+      if (this.options.openIsDir && !isTextBundle(openPath)) this.sidebar.setRoot(openPath)
+      else await this.openFile(openPath, draft ? { where: 'tab' } : { replace: true })
     }
     this.updateWindowState()
     this.renderStatus()
@@ -207,6 +247,7 @@ export class App {
     const fm = frontMatterInfo(doc, this.session.path)
     this.env.ctx.path = this.session.path
     this.env.ctx.rootUrl = fm.rootUrl
+    this.readOnlyWarned = false
     this.view.updateState(createEditorState(doc, this.env))
     this.applyViewModes()
     this.renderHeader()
@@ -220,39 +261,85 @@ export class App {
     this.onEditorUpdate(this.view)
   }
 
-  async openFile(path: string, opts: { newWindow?: boolean; replace?: boolean; encoding?: string } = {}): Promise<void> {
-    if (opts.newWindow) {
-      await this.host.openDocument(path, { newWindow: true })
-      return
-    }
-    if (!(await this.confirmLeave())) return
-    if (this.session.path && !opts.replace) this.navBack.push({ path: this.session.path, pos: this.view.state.selection.from })
-    this.navForward = []
+  /**
+   * 打开文档。where:current 在当前标签打开,tab / window 另开(PRD 3.1、notion 5.1 第 10、11 行);
+   * 已在别的窗口或标签打开时切过去,不重复打开。返回是否在当前标签载入了文档。
+   */
+  async openFile(path: string, opts: { where?: OpenWhere; replace?: boolean; encoding?: string } = {}): Promise<boolean> {
+    const where = opts.where ?? 'current'
+    let textPath = path
+    let stat: FileStat | null
     try {
-      if (this.source) this.toggleSourceMode(false)
-      const doc = await this.session.load(path, opts.encoding)
-      this.setDocument(doc)
-      if (!this.sidebar.rootFolder) this.sidebar.setRoot(dirname(path))
+      stat = await this.host.stat(path)
+      // TextBundle:打开包里的 text.md(对照表 X-53)
+      if (stat && isTextBundle(path)) {
+        textPath = await textBundleText(this.host, path)
+        stat = await this.host.stat(textPath)
+      }
     } catch (err) {
-      this.toast(`无法打开 ${basename(path)}:${err instanceof Error ? err.message : String(err)}`, true)
+      this.toast(`无法打开 ${basename(path)}:${errText(err)}`, true)
+      return false
+    }
+    if (!stat) {
+      this.toast('目标文件或文件夹不存在。', true)
+      return false
+    }
+    if (where !== 'current') {
+      await this.host.openDocument(path, where === 'window' ? { newWindow: true } : { tab: true })
+      return false
+    }
+    if (textPath !== this.session.path && (await this.host.focusDocument(textPath))) return false
+    if (!(await this.confirmLeave())) return false
+    if (this.session.path && !opts.replace && this.session.path !== textPath) this.nav.push(this.here())
+    try {
+      this.closeSource()
+      if (stat.size > LARGE_FILE_BYTES) {
+        // 超大文件:不解析,以只读源码打开
+        const text = await this.session.loadText(textPath, opts.encoding)
+        this.session.readOnly = 'large'
+        this.setDocument(schema.nodes.doc.create(null, schema.nodes.paragraph.create()))
+        this.openSource(text, true)
+        this.toast(`文件较大(${(stat.size / 1024 / 1024).toFixed(1)} MB),已以只读源码方式打开`)
+      } else {
+        const doc = await this.session.load(textPath, opts.encoding)
+        if (stat.writable === false) this.session.readOnly = 'permission'
+        this.setDocument(doc)
+      }
+      if (!this.sidebar.rootFolder) this.sidebar.setRoot(dirname(bundleOf(textPath) ?? textPath))
+      this.renderStatus()
+      return true
+    } catch (err) {
+      this.toast(`无法打开 ${basename(path)}:${errText(err)}`, true)
+      return false
     }
   }
 
-  /** 离开当前文档前(切换文档、关窗口、退出):有未保存修改时自动保存或询问。返回 false 表示用户取消。 */
-  async confirmLeave(): Promise<boolean> {
+  /**
+   * 离开当前文档前(切换文档、关窗口、退出):有未保存修改时自动保存或询问。返回 false 表示用户取消。
+   * 退出应用且自动保存开着时,未命名文档不询问:草稿留在数据目录,下次启动恢复到原标签(PRD 3.1、对照表 X-56)。
+   */
+  async confirmLeave(reason: 'switch' | 'close' | 'quit' = 'switch'): Promise<boolean> {
     if (!this.session.dirty) return true
-    if (this.session.path && this.settings.autoSave) {
-      await this.save()
-      return true
+    if (this.session.path && this.settings.autoSave && !this.session.readOnly) {
+      if (await this.save()) return true
+    } else if (!this.session.path && this.settings.autoSave && reason === 'quit') {
+      try {
+        await this.drafts.flush()
+        return true
+      } catch (err) {
+        this.toast(`未命名草稿备份失败:${errText(err)}`, true)
+      }
     }
     const choice = await this.host.confirm({
-      title: `要保存对「${this.session.title}」的修改吗?`,
-      message: '不保存的话,修改会丢失。',
+      title: '是否保存更改?',
+      message: '如果不保存,您的更改将会丢失。',
       buttons: ['保存', '不保存', '取消'],
       style: 'warning',
     })
     if (choice === 2) return false
     if (choice === 0) return this.save()
+    this.session.dirty = false
+    await this.drafts.discard().catch((err: unknown) => this.toast(`删除草稿备份失败:${errText(err)}`, true))
     return true
   }
 
@@ -261,54 +348,101 @@ export class App {
     this.updateWindowState()
     this.renderHeader()
     clearTimeout(this.autosaveTimer)
-    if (this.settings.autoSave && this.session.path) {
-      this.autosaveTimer = window.setTimeout(() => void this.save(), AUTOSAVE_DELAY)
+    if (this.session.readOnly === 'permission') this.warnReadOnly()
+    if (!this.session.path) this.drafts.schedule()
+    else if (this.settings.autoSave && !this.session.readOnly) {
+      this.autosaveTimer = window.setTimeout(() => void this.save({ auto: true }), AUTOSAVE_DELAY)
     }
+  }
+
+  /** 只读文件可以浏览、可以改,第一次输入时提示改动存不了,给【另存为】(PRD 3.1 异常) */
+  private warnReadOnly(): void {
+    if (this.readOnlyWarned) return
+    this.readOnlyWarned = true
+    this.toast('该文件只读,修改无法保存', true, { label: '另存为', run: () => void this.saveAs() })
   }
 
   private currentDoc(): PMNode {
     if (!this.source) return this.view.state.doc
-    // 源码模式下以源码为准
+    // 源码模式下以源码为准;源码编辑器内部一律用 \n,写回时沿用文件原来的换行符
     const parsed = parseMarkdown(this.source.text, { inlineMath: this.settings.inlineMath })
-    this.session.meta = parsed.meta
+    this.session.meta = { ...parsed.meta, lineEnding: this.session.meta.lineEnding }
     return parsed.doc
   }
 
-  async save(): Promise<boolean> {
+  async save(opts: { auto?: boolean } = {}): Promise<boolean> {
     clearTimeout(this.autosaveTimer)
-    if (!this.session.path) return this.saveAs()
+    if (this.session.readOnly === 'large') {
+      this.toast('文件过大,以只读源码方式打开,不能保存', true)
+      return false
+    }
+    // 没有写权限:改为另存为(PRD 3.1 异常)
+    if (!this.session.path || this.session.readOnly === 'permission') return this.saveAs()
     try {
       await this.session.save(this.currentDoc())
+      this.saveFailing = false
       this.updateWindowState()
+      this.renderStatus()
       return true
     } catch (err) {
-      this.toast(`保存失败:${err instanceof Error ? err.message : String(err)}`, true)
+      await this.reportSaveFailure(err, !opts.auto || !this.saveFailing)
+      this.saveFailing = true
       return false
+    }
+  }
+
+  /** 写盘失败(PRD 二 功能流程图、对照表 X-52):提示保存失败,全文放进剪贴板以免丢失。 */
+  private async reportSaveFailure(err: unknown, copy: boolean): Promise<void> {
+    const reason = errText(err).replace(/^保存失败:/, '')
+    if (!copy) {
+      this.toast(`保存失败:${reason}`, true, { label: '另存为', run: () => void this.saveAs() })
+      return
+    }
+    try {
+      await this.host.writeClipboard(this.session.serialize(this.currentDoc()))
+      this.toast(`保存失败:${reason}。全文已放入剪贴板,可粘贴到新文档后另存。`, true, { label: '另存为', run: () => void this.saveAs() })
+    } catch (clipErr) {
+      this.toast(`保存失败:${reason};放入剪贴板也失败:${errText(clipErr)}`, true)
     }
   }
 
   async saveAs(): Promise<boolean> {
-    const defaultName = this.session.path ? basename(this.session.path) : `${this.firstHeadingText() || '未命名'}.md`
-    const target = await this.host.saveDialog({ defaultName, extensions: ['md', 'markdown', 'txt'] })
-    if (!target) return false
+    const wasUntitled = !this.session.path
+    const shown = this.session.path ? (bundleOf(this.session.path) ?? this.session.path) : null
+    const defaultName = shown ? basename(shown) : `${this.firstHeadingText() || '未命名'}.md`
+    const chosen = await this.host.saveDialog({ defaultName, extensions: ['md', 'markdown', 'txt', 'textbundle'] })
+    if (!chosen) return false
+    const previousCtx = this.env.ctx.path
     try {
-      await this.session.save(this.currentDoc(), target)
+      const target = isTextBundle(chosen) ? await createTextBundle(this.host, chosen) : chosen
+      // 未保存时插入的图片先在数据目录里,首次保存时搬到文档旁、改写为相对路径(对照表 X-19)
       this.env.ctx.path = target
-      if (!this.sidebar.rootFolder) this.sidebar.setRoot(dirname(target))
+      if (wasUntitled && !this.source) await relocateDraftAssets(this.view, { ...this.importContext(), docPath: target })
+      await this.session.save(this.currentDoc(), target)
+      this.session.readOnly = null
+      this.saveFailing = false
+      this.env.ctx.rootUrl = frontMatterInfo(this.view.state.doc, target).rootUrl
+      if (!this.sidebar.rootFolder) this.sidebar.setRoot(dirname(bundleOf(target) ?? target))
       this.sidebar.refresh()
+      this.sidebar.markCurrent()
+      void this.host.watch([target])
+      this.recent = [target, ...this.recent.filter((p) => p !== target)].slice(0, 20)
       this.updateWindowState()
-      return true
+      this.renderStatus()
     } catch (err) {
-      this.toast(`保存失败:${err instanceof Error ? err.message : String(err)}`, true)
+      this.env.ctx.path = previousCtx
+      await this.reportSaveFailure(err, true)
       return false
     }
+    if (wasUntitled) await this.drafts.discard().catch((err: unknown) => this.toast(`删除草稿备份失败:${errText(err)}`, true))
+    return true
   }
 
   private firstHeadingText(): string {
     return collectHeadings(this.view.state.doc)[0]?.text.replace(/[/:]/g, '-').slice(0, 60) ?? ''
   }
 
-  /** 外部修改:没有未保存修改就静默重载;有则询问。 */
+  /** 外部修改:没有未保存修改就静默重载;有则询问(PRD 3.1 外部修改)。 */
   private async onExternalChange(): Promise<void> {
     const path = this.session.path
     if (!path) return
@@ -323,11 +457,15 @@ export class App {
       this.session.savedMtime = stat.mtime
       return
     }
+    if (this.session.readOnly === 'large') {
+      await this.openFile(path, { replace: true, encoding: this.session.encoding })
+      return
+    }
     if (this.session.dirty) {
       const choice = await this.host.confirm({
-        title: '文件已在磁盘上被修改',
-        message: `「${basename(path)}」被其它程序修改了。要载入磁盘上的版本吗?`,
-        buttons: ['载入磁盘版本', '保留我的修改'],
+        title: '文件已被其他程序修改',
+        message: `「${basename(bundleOf(path) ?? path)}」`,
+        buttons: ['重新加载', '保留我的修改'],
         style: 'warning',
       })
       if (choice !== 0) {
@@ -338,6 +476,7 @@ export class App {
     const pos = this.view.state.selection.from
     const scroll = this.els.scroll.scrollTop
     const doc = await this.session.load(path, this.session.encoding)
+    if (stat.writable === false) this.session.readOnly = 'permission'
     this.setDocument(doc)
     this.els.scroll.scrollTop = scroll
     const clamped = Math.min(pos, this.view.state.doc.content.size)
@@ -448,43 +587,235 @@ export class App {
 
   private renderStatus(): void {
     if (!this.view || !this.settings.showStatusBar) return
-    const text = this.source ? this.source.text : this.view.state.doc.textBetween(0, this.view.state.doc.content.size, '\n\n', ' ')
+    // 超大文件(只读源码)不逐字统计,免得每次刷新状态栏都扫一遍
+    const large = this.session.readOnly === 'large'
+    const text = this.source ? (large ? '' : this.source.text) : this.view.state.doc.textBetween(0, this.view.state.doc.content.size, '\n\n', ' ')
     const stats = countWords(text)
     const { from, to, empty } = this.view.state.selection
     const sel = !empty && !this.source ? countWords(this.view.state.doc.textBetween(from, to, '\n\n', ' ')) : null
-    const words = h('button', { type: 'button', class: 'tz-status-btn', title: '字数统计' }, sel ? `已选 ${sel.words} 字 / 共 ${stats.words} 字` : `${stats.words} 字`)
+    const words = h('button', { type: 'button', class: 'tz-status-btn', title: '字数统计' }, large ? '只读源码' : sel ? `已选 ${sel.words} 字 / 共 ${stats.words} 字` : `${stats.words} 字`)
     words.addEventListener('click', () => runCommand(this.view, 'view.wordCount'))
     const sidebarBtn = h('button', { type: 'button', class: 'tz-status-btn', title: '显示 / 隐藏侧栏(⌃⌘S)' }, '☰')
     sidebarBtn.addEventListener('click', () => this.runAppCommand('view.toggleSidebar'))
     const sourceBtn = h('button', { type: 'button', class: `tz-status-btn${this.source ? ' is-on' : ''}`, title: '源代码模式(⌃⌘/)' }, '</>')
     sourceBtn.addEventListener('click', () => this.runAppCommand('view.sourceMode'))
-    const state = h('span', { class: 'tz-status-text' }, this.session.dirty ? (this.settings.autoSave && this.session.path ? '正在保存…' : '未保存') : this.session.path ? '已保存' : '')
+    const saved = this.session.dirty ? (this.settings.autoSave && this.session.path ? '正在保存…' : '未保存') : this.session.path ? '已保存' : ''
+    const state = h('span', { class: 'tz-status-text' }, this.session.readOnly ? `只读${this.session.dirty ? ' · 未保存' : ''}` : saved)
     this.els.status.replaceChildren(sidebarBtn, sourceBtn, h('span', { class: 'tz-status-spacer' }), this.sync.statusButton() ?? '', state, words)
   }
 
   // ---------- 源码模式 ----------
 
+  private serializeOptions(): { inlineMath: boolean; ensureTrailingNewline: boolean } {
+    return { inlineMath: this.settings.inlineMath, ensureTrailingNewline: this.settings.ensureTrailingNewline }
+  }
+
+  private openSource(text: string, readOnly: boolean): SourceEditor {
+    this.els.editor.hidden = true
+    this.els.header.hidden = true
+    const mount = h('div', { class: 'tz-source-host' })
+    this.els.page.append(mount)
+    this.source = new SourceEditor(mount, text, () => this.onDocChange(), this.settings.codeLineNumbers, readOnly)
+    return this.source
+  }
+
+  private closeSource(): void {
+    if (!this.source) return
+    this.source.destroy()
+    this.els.page.querySelector('.tz-source-host')?.remove()
+    this.source = null
+    this.els.editor.hidden = false
+    this.els.header.hidden = false
+  }
+
+  /** 切换源代码模式,来回切换保持光标所在位置(PRD 3.10)。 */
   toggleSourceMode(on = !this.source): void {
+    if (this.session.readOnly === 'large') {
+      if (!on) this.toast('文件过大,只能以只读源码方式查看', true)
+      return
+    }
     if (on && !this.source) {
-      const text = this.session.serialize(this.view.state.doc)
-      this.els.editor.hidden = true
-      this.els.header.hidden = true
-      const mount = h('div', { class: 'tz-source-host' })
-      this.els.page.append(mount)
-      this.source = new SourceEditor(mount, text, () => this.onDocChange(), this.settings.codeLineNumbers)
-      this.source.focus()
+      const doc = this.view.state.doc
+      const pos = this.view.state.selection.from
+      const source = this.openSource(this.session.serialize(doc), false)
+      source.setCursor(docPosToSource(doc, pos, source.text, this.session.meta, this.serializeOptions()))
+      source.focus()
     } else if (!on && this.source) {
+      const text = this.source.text
+      const offset = this.source.cursor
       const doc = this.currentDoc()
-      this.source.destroy()
-      this.els.page.querySelector('.tz-source-host')?.remove()
-      this.source = null
-      this.els.editor.hidden = false
-      this.els.header.hidden = false
+      this.closeSource()
       this.view.updateState(createEditorState(doc, this.env))
+      this.applyViewModes()
       this.renderHeader()
-      this.view.focus()
+      this.placeCursor(sourceToDocPos(doc, offset, text, this.session.meta, this.serializeOptions()))
     }
     this.renderStatus()
+  }
+
+  // ---------- 跳转:后退 / 前进(⌘[ / ⌘])、文内锚点、全局搜索定位 ----------
+
+  private here(): NavEntry {
+    return { path: this.session.path, pos: this.source ? 0 : this.view.state.selection.from }
+  }
+
+  private placeCursor(pos: number): void {
+    const doc = this.view.state.doc
+    const $pos = doc.resolve(Math.max(0, Math.min(pos, doc.content.size)))
+    this.view.dispatch(this.view.state.tr.setSelection(Selection.near($pos)).scrollIntoView())
+    this.view.focus()
+  }
+
+  /** 回到上一个(或下一个)查看位置,跨文档时打开原文档并恢复跳转前的光标(notion 5.1 第 4、5 行) */
+  private async navigate(dir: -1 | 1): Promise<void> {
+    const here = this.here()
+    const target = dir < 0 ? this.nav.goBack(here) : this.nav.goForward(here)
+    if (!target) return
+    if (target.path !== this.session.path) {
+      if (!target.path || !(await this.openFile(target.path, { replace: true }))) return
+    }
+    if (this.source) this.toggleSourceMode(false)
+    if (!this.source) this.placeCursor(target.pos)
+  }
+
+  private jumpToAnchor(anchor: string): void {
+    const here = this.here()
+    if (this.source) this.toggleSourceMode(false)
+    if (scrollToAnchor(this.view, anchor)) this.nav.push(here)
+    else this.toast(`找不到标题或锚点:#${anchor}`, true)
+  }
+
+  /** 全局搜索结果:打开文件并选中命中行里的匹配文字(PRD 3.9) */
+  private async openAt(path: string, line: number, query: string, flags: SearchFlags): Promise<void> {
+    if (path !== this.session.path && path !== bundleOf(this.session.path ?? '') && !(await this.openFile(path))) return
+    const text = this.source ? this.source.text : this.session.serialize(this.view.state.doc).replace(/\r\n?/g, '\n')
+    let start = 0
+    for (let i = 1; i < line; i++) {
+      const next = text.indexOf('\n', start)
+      if (next < 0) break
+      start = next + 1
+    }
+    const lineEnd = text.indexOf('\n', start)
+    const lineText = text.slice(start, lineEnd < 0 ? text.length : lineEnd)
+    let length = 0
+    try {
+      const m = buildPattern({ query, ...flags })?.exec(lineText)
+      if (m) {
+        start += m.index
+        length = m[0].length
+      }
+    } catch {
+      // 正则写错时搜索本身已报错,这里只定位到行首
+      length = 0
+    }
+    if (this.source) {
+      this.source.setCursor(start)
+      this.source.focus()
+      return
+    }
+    const doc = this.view.state.doc
+    const from = sourceToDocPos(doc, start, text, this.session.meta, this.serializeOptions())
+    let to = length ? sourceToDocPos(doc, start + length, text, this.session.meta, this.serializeOptions()) : from
+    // 匹配跨到下一个块时只放光标
+    if (to < from || to - from > length * 4 + 8) to = from
+    this.view.dispatch(this.view.state.tr.setSelection(TextSelection.between(doc.resolve(from), doc.resolve(to))).scrollIntoView())
+    this.view.focus()
+  }
+
+  // ---------- 文件与历史版本 ----------
+
+  /** 文件或文件夹改名 / 移动后,当前文档路径、后退历史、最近文件跟着变 */
+  private onPathMoved(from: string, to: string): void {
+    const follow = (p: string) => (p === from || p.startsWith(`${from}/`) ? to + p.slice(from.length) : p)
+    this.nav.rename(from, to)
+    this.recent = this.recent.map(follow)
+    const cur = this.session.path
+    if (!cur || follow(cur) === cur) return
+    const next = follow(cur)
+    this.session.path = next
+    this.env.ctx.path = next
+    this.env.ctx.rootUrl = frontMatterInfo(this.view.state.doc, next).rootUrl
+    void this.host.watch([next])
+    this.updateWindowState()
+    this.sidebar.markCurrent()
+  }
+
+  /** 当前文档被移到废纸篓:本标签换成空白新文档(文件可从废纸篓恢复,历史版本保留) */
+  private onPathTrashed(path: string): void {
+    const cur = this.session.path
+    if (!cur || !(cur === path || cur.startsWith(`${path}/`))) return
+    clearTimeout(this.autosaveTimer)
+    this.closeSource()
+    this.setDocument(this.session.createEmpty())
+  }
+
+  /** 恢复外壳交回的未命名草稿(PRD 3.1:重启或网页进程崩溃后恢复到原标签) */
+  private restoreDraft(draft: DraftRestore): void {
+    const { doc, meta } = parseMarkdown(draft.text, { inlineMath: this.settings.inlineMath })
+    this.session.createEmpty()
+    this.session.meta = meta
+    this.setDocument(doc)
+    this.session.dirty = true
+    this.drafts.adopt(draft.id)
+    this.updateWindowState()
+    this.renderStatus()
+  }
+
+  /** 【恢复此版本】:先把当前内容记成快照,再替换为所选版本(可 ⌘Z 撤回),提示恢复到的时间(PRD 3.14) */
+  private async restoreVersion(text: string, time: number): Promise<void> {
+    const path = this.session.path
+    if (!path) return
+    if (this.source) this.toggleSourceMode(false)
+    await this.host.historySnapshot(path, this.session.serialize(this.view.state.doc))
+    const { doc, meta } = parseMarkdown(text, { inlineMath: this.settings.inlineMath })
+    this.session.meta = meta
+    const tr = this.view.state.tr.replaceWith(0, this.view.state.doc.content.size, doc.content)
+    this.view.dispatch(tr.setSelection(Selection.atStart(tr.doc)).scrollIntoView())
+    this.toast(`已恢复到 ${formatVersionTime(time)} 的版本`)
+  }
+
+  /** 找回已删除的文件:把所选版本写回原位置并在新标签打开 */
+  private async recoverDeleted(path: string, text: string, time: number): Promise<void> {
+    if (await this.host.stat(path)) throw new Error(`原位置已有同名文件:${path}`)
+    await this.host.writeText(path, text)
+    this.sidebar.refresh()
+    this.toast(`已找回「${basename(path)}」(${formatVersionTime(time)} 的版本)`)
+    await this.openFile(path, { where: 'tab' })
+  }
+
+  /** 复原到已保存 / 从磁盘重新载入:有未保存的修改先确认「放弃更改」(对照表 F-18) */
+  private async revertToSaved(): Promise<void> {
+    const path = this.session.path
+    if (!path) return
+    if (this.session.dirty) {
+      const choice = await this.host.confirm({ title: '要复原到上次保存的版本吗?', message: '当前未保存的修改会丢失。', buttons: ['放弃更改', '取消'], style: 'warning' })
+      if (choice !== 0) return
+    }
+    clearTimeout(this.autosaveTimer)
+    this.session.dirty = false
+    await this.openFile(path, { replace: true, encoding: this.session.encoding })
+  }
+
+  /** 创建副本(对照表 F-16):在同一文件夹复制一份并在新标签打开 */
+  private async duplicateCurrent(): Promise<void> {
+    const path = this.session.path
+    if (!path) {
+      this.toast('文档还没有保存', true)
+      return
+    }
+    if (this.session.dirty && !this.session.readOnly) await this.save()
+    const copy = await this.fileOps.duplicate(bundleOf(path) ?? path)
+    if (copy) await this.openFile(copy, { where: 'tab' })
+  }
+
+  /** 文件菜单里针对当前文档的操作:没保存过的新文档没有文件可操作 */
+  private withCurrentFile(run: (path: string) => void): void {
+    const path = this.session.path
+    if (!path) {
+      this.toast('文档还没有保存', true)
+      return
+    }
+    run(bundleOf(path) ?? path)
   }
 
   // ---------- 资源插入(EditorActions) ----------
@@ -506,6 +837,7 @@ export class App {
         if (r.kind === 'image') nodes.push(schema.nodes.image.create({ src: r.src, alt: r.name.replace(/\.[^.]+$/, '') }))
         else nodes.push(schema.nodes.media.create({ kind: r.kind, src: r.src, title: r.kind === 'file' ? r.name : '' }))
       }
+      if (nodes.length && this.session.path && bundleOf(this.session.path)) this.toast('图片已存储到 TextBundle 文件中')
       const { state } = view
       const pos = at ?? state.selection.from
       const tr = state.tr
@@ -602,30 +934,52 @@ export class App {
     })
   }
 
-  /** 打开文档内链接:相对路径相对当前文档;wikilink 按文件名在根文件夹里找。 */
-  private async openLink(target: string, newWindow: boolean): Promise<void> {
-    const [pathPart, anchor] = target.split('#')
-    let path: string | null = null
-    if (/\.(md|markdown|mdown|mkd|txt)$/i.test(pathPart)) {
-      path = resolveLocalPath(pathPart, this.env.ctx)
-    } else {
-      // wikilink:[[笔记]] → 根文件夹下名为「笔记.md」的文件
-      const root = this.sidebar.rootFolder ?? (this.session.path ? dirname(this.session.path) : null)
-      if (root) {
-        const all = await this.host.listMarkdown(root)
-        path = all.find((p) => basename(p).replace(/\.(md|markdown)$/i, '') === pathPart) ?? null
+  /**
+   * 打开文档内链接(PRD 3.2):`#标题` 文内跳转并入后退栈;本地文档按 where 打开(⌘+点击新标签、⌥⇧+点击新窗口);
+   * 其它本机文件用默认应用;目标不存在时询问「无法打开 X,是否在 Y 新建文件并继续?」。
+   */
+  private async openLink(target: string, where: OpenWhere | boolean): Promise<void> {
+    const w: OpenWhere = where === true ? 'tab' : where === false ? 'current' : where
+    let t: LinkTarget
+    try {
+      t = await resolveLinkTarget(this.host, target, this.env.ctx, this.sidebar.rootFolder)
+    } catch (err) {
+      this.toast(`无法打开链接:${errText(err)}`, true)
+      return
+    }
+    switch (t.kind) {
+      case 'anchor':
+        this.jumpToAnchor(t.anchor)
+        return
+      case 'file':
+        await this.host.openWithDefaultApp(t.path).catch((err: unknown) => this.toast(errText(err), true))
+        return
+      case 'doc': {
+        if (t.path === this.session.path || t.path === bundleOf(this.session.path ?? '')) {
+          if (t.anchor) this.jumpToAnchor(t.anchor)
+          return
+        }
+        const loaded = await this.openFile(t.path, { where: w })
+        if (loaded && t.anchor) scrollToAnchor(this.view, t.anchor)
+        return
+      }
+      case 'missing': {
+        if (!t.creatable) {
+          this.toast('目标文件或文件夹不存在。', true)
+          return
+        }
+        const choice = await this.host.confirm({ title: `无法打开 ${basename(t.path)},是否在 ${dirname(t.path)} 新建文件并继续?`, message: '', buttons: ['新建', '取消'] })
+        if (choice !== 0) return
+        try {
+          await this.host.writeText(t.path, '')
+        } catch (err) {
+          this.toast(`新建失败:${errText(err)}`, true)
+          return
+        }
+        this.sidebar.refresh()
+        await this.openFile(t.path, { where: w })
       }
     }
-    if (!path) {
-      this.toast(`找不到文档:${pathPart}`, true)
-      return
-    }
-    if (!(await this.host.stat(path))) {
-      this.toast(`文档不存在:${path}`, true)
-      return
-    }
-    await this.openFile(path, { newWindow })
-    if (anchor && !newWindow) scrollToAnchor(this.view, anchor)
   }
 
   // ---------- 导出 ----------
@@ -647,6 +1001,10 @@ export class App {
       opml: 'opml',
     }
     const stem = this.session.path ? basename(this.session.path).replace(/\.[^.]+$/, '') : this.firstHeadingText() || '未命名'
+    if (this.session.readOnly === 'large') {
+      this.toast('文件过大,以只读源码方式打开,不能导出', true)
+      return
+    }
     const target = await this.host.saveDialog({ defaultName: `${stem}.${extMap[format]}`, extensions: [extMap[format]] })
     if (!target) return
     if (this.source) this.toggleSourceMode(false)
@@ -673,7 +1031,7 @@ export class App {
     cmd('file.newWindow', '新建', () => void this.host.openDocument('', { newWindow: true }))
     cmd('file.newDocument', '新建文档', () => void this.host.openDocument('', { newWindow: true }))
     cmd('file.open', '打开…', () => {
-      void this.host.openDialog({ extensions: ['md', 'markdown', 'mdown', 'mkd', 'txt'] }).then((p) => {
+      void this.host.openDialog({ extensions: [...TEXT_EXTENSIONS, 'textbundle'] }).then((p) => {
         if (p?.[0]) void this.openFile(p[0])
       })
     })
@@ -688,7 +1046,7 @@ export class App {
     cmd('file.quickOpen', '快速打开…', () => {
       const root = this.sidebar.rootFolder
       void (root ? this.host.listMarkdown(root) : Promise.resolve([])).then((files) =>
-        showQuickOpen({ root, files, recent: this.recent, open: (p, nw) => void this.openFile(p, { newWindow: nw }) }),
+        showQuickOpen({ root, files, recent: this.recent, titles: (paths) => this.host.firstHeadings(paths), open: (p, where) => void this.openFile(p, { where }) }),
       )
     })
     cmd('file.revealInFinder', '在 Finder 中显示', () => {
@@ -702,30 +1060,48 @@ export class App {
     })
     cmd('file.history', '浏览所有版本…', () => {
       const path = this.session.path
-      if (!path) return
-      // 本机快照 + 云端版本(文件在同步文件夹里时);恢复都是把内容放回编辑器,保存后作为新版本同步
-      void Promise.all([this.host.historyList(path), this.sync.cloudVersions(path)]).then(([entries, cloud]) =>
-        showHistory(
-          this.host,
-          path,
-          entries,
-          (text) => {
-            const { doc, meta } = parseMarkdown(text, { inlineMath: this.settings.inlineMath })
-            this.session.meta = meta
-            this.view.updateState(createEditorState(doc, this.env))
-            this.onDocChange()
-          },
-          cloud.map((v) => ({
-            label: new Date(v.mtime).toLocaleString('zh-CN', { hour12: false }),
-            meta: `云端 · 第 ${v.version} 版 · ${v.thisDevice ? '本机' : '其他设备'} · ${(v.size / 1024).toFixed(1)} KB`,
-            load: () => this.sync.readVersion(path, v.version),
-          })),
-        ),
+      // 本机快照 + 云端版本(文件在同步文件夹里时);未保存的新文档只看「已删除的文件」
+      const load = async (): Promise<[HistoryEntry[], Awaited<ReturnType<SyncController['cloudVersions']>>]> =>
+        path ? Promise.all([this.host.historyList(path), this.sync.cloudVersions(path)]) : [[], []]
+      void load().then(
+        ([entries, cloud]) =>
+          showHistory({
+            host: this.host,
+            path,
+            entries,
+            cloud: cloud.map((v) => ({
+              time: v.mtime,
+              label: formatVersionTime(v.mtime),
+              meta: `云端 · 第 ${v.version} 版 · ${v.thisDevice ? '本机' : '其他设备'} · ${(v.size / 1024).toFixed(1)} KB`,
+              load: () => this.sync.readVersion(path ?? '', v.version),
+            })),
+            current: () => this.session.serialize(this.currentDoc()),
+            restore: (text, time) => this.restoreVersion(text, time),
+            recover: (deleted, text, time) => this.recoverDeleted(deleted, text, time),
+            toast: (message, error) => this.toast(message, error),
+          }),
+        (err: unknown) => this.toast(`读取历史版本失败:${errText(err)}`, true),
       )
     })
-    cmd('file.reload', '从磁盘重新载入', () => {
-      if (this.session.path) void this.session.load(this.session.path, this.session.encoding).then((doc) => this.setDocument(doc))
-    })
+    cmd('file.reload', '从磁盘重新载入', () => void this.revertToSaved())
+    cmd('file.revert', '复原到已保存', () => void this.revertToSaved())
+    cmd('file.info', '显示简介…', () => this.withCurrentFile((p) => void this.fileOps.showInfo(p, '简介')))
+    cmd('file.revealInList', '在文档列表中显示', () =>
+      this.withCurrentFile((p) => {
+        void this.updateSettings({ sidebarVisible: true })
+        void this.sidebar.revealInList(p)
+      }),
+    )
+    cmd('file.revealInTree', '在文件树中显示', () =>
+      this.withCurrentFile((p) => {
+        void this.updateSettings({ sidebarVisible: true })
+        void this.sidebar.revealInTree(p)
+      }),
+    )
+    cmd('file.rename', '重命名…', () => this.withCurrentFile((p) => void this.fileOps.rename(p)))
+    cmd('file.moveTo', '移动到…', () => this.withCurrentFile((p) => void this.fileOps.chooseAndMove(p)))
+    cmd('file.duplicate', '创建副本', () => void this.duplicateCurrent())
+    cmd('file.delete', '删除…', () => this.withCurrentFile((p) => void this.fileOps.trash(p)))
     cmd('file.reopenWithEncoding', '以其它编码重新打开…', () => {
       const path = this.session.path
       if (!path) return
@@ -737,17 +1113,12 @@ export class App {
     for (const f of ['pdf', 'html', 'html-plain', 'image', 'docx', 'odt', 'rtf', 'epub', 'latex', 'mediawiki', 'rst', 'textile', 'opml'] as ExportFormat[]) {
       cmd(`file.export.${f}`, `导出 ${f}`, () => void this.exportAs(f))
     }
-    cmd('nav.back', '后退', () => {
-      const prev = this.navBack.pop()
-      if (!prev || !this.session.path) return
-      this.navForward.push({ path: this.session.path, pos: this.view.state.selection.from })
-      void this.openFile(prev.path, { replace: true })
-    })
-    cmd('nav.forward', '前进', () => {
-      const next = this.navForward.pop()
-      if (!next || !this.session.path) return
-      this.navBack.push({ path: this.session.path, pos: this.view.state.selection.from })
-      void this.openFile(next.path, { replace: true })
+    cmd('nav.back', '后退', () => void this.navigate(-1))
+    cmd('nav.forward', '前进', () => void this.navigate(1))
+    cmd('view.outlinePopover', '大纲窗口', () => {
+      const headings = collectHeadings(this.view.state.doc)
+      const pos = this.view.state.selection.from
+      showOutlinePopover(headings, headings.reduce((active, x, i) => (x.pos <= pos ? i : active), -1), (item) => this.jumpToHeading(item))
     })
     cmd('view.toggleSidebar', '显示 / 隐藏侧栏', () => void this.updateSettings({ sidebarVisible: !this.settings.sidebarVisible }))
     for (const [id, tab] of [
@@ -758,7 +1129,7 @@ export class App {
     ] as [string, SidebarTab][]) {
       cmd(id, tab, () => {
         void this.updateSettings({ sidebarVisible: true })
-        this.sidebar.setTab(tab)
+        void this.sidebar.setTab(tab)
       })
     }
     cmd('view.sourceMode', '源代码模式', () => this.toggleSourceMode())
@@ -832,7 +1203,7 @@ export class App {
       }
     })
     this.host.on('app.open', ({ path, isDir }) => {
-      if (isDir) this.sidebar.setRoot(path)
+      if (isDir && !isTextBundle(path)) this.sidebar.setRoot(path)
       else void this.openFile(path)
     })
     this.host.on('fs.changed', ({ paths }) => {
@@ -844,7 +1215,7 @@ export class App {
       this.applyAppearance()
     })
     this.host.on('window.willClose', () => {
-      void this.confirmLeave().then((ok) => {
+      void this.confirmLeave('close').then((ok) => {
         if (ok) this.host.closeWindow()
       })
     })

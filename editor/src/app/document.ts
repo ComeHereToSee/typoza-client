@@ -1,11 +1,12 @@
 // 一个窗口里正在编辑的文档:路径、原文格式信息(换行符、编码、BOM)、保存状态。
 import type { Node as PMNode } from 'prosemirror-model'
 import YAML from 'yaml'
+import { bundleOf } from '../core/filetypes'
 import { type DocMeta, parseMarkdown } from '../core/markdown/parse'
 import { serializeMarkdown } from '../core/markdown/serialize'
 import { dirname, joinPath, normalizePath } from '../core/paths'
 import { schema } from '../core/schema'
-import type { Host } from '../host/types'
+import type { Host, ReadResult } from '../host/types'
 import type { AppSettings } from './settings'
 
 export interface FrontMatterInfo {
@@ -24,6 +25,8 @@ export class DocumentSession {
   dirty = false
   /** 最近一次写盘(或读盘)的文本,用于判断外部修改是否只是我们自己的保存 */
   savedText = ''
+  /** 只读原因(PRD 3.1 异常):permission = 没有写权限,large = 超过大文件阈值、以只读源码打开;null 为可写 */
+  readOnly: 'permission' | 'large' | null = null
 
   constructor(
     private readonly host: Host,
@@ -32,19 +35,35 @@ export class DocumentSession {
 
   get title(): string {
     if (!this.path) return '未命名'
-    return this.path.slice(this.path.lastIndexOf('/') + 1)
+    // TextBundle 包里的正文以包名作标题
+    const shown = bundleOf(this.path) ?? this.path
+    return shown.slice(shown.lastIndexOf('/') + 1)
   }
 
   async load(path: string, encoding?: string): Promise<PMNode> {
     const result = await this.host.readText(path, encoding)
+    // 先解析再改状态:解析失败时会话仍指向原文档,不会把旧内容存到新路径
     const parsed = parseMarkdown(result.text, { inlineMath: this.settings().inlineMath })
-    this.path = path
+    this.adopt(path, result)
     this.meta = parsed.meta
+    return parsed.doc
+  }
+
+  /** 只读进原文、不解析(超大文件以只读源码打开) */
+  async loadText(path: string, encoding?: string): Promise<string> {
+    const result = await this.host.readText(path, encoding)
+    this.adopt(path, result)
+    this.meta = { lineEnding: result.text.includes('\r\n') ? '\r\n' : '\n', bom: false, leading: '', trailing: '\n', bullet: '-' }
+    return result.text
+  }
+
+  private adopt(path: string, result: ReadResult): void {
+    this.path = path
     this.encoding = result.encoding
     this.savedMtime = result.mtime
     this.savedText = result.text
     this.dirty = false
-    return parsed.doc
+    this.readOnly = null
   }
 
   createEmpty(): PMNode {
@@ -54,6 +73,7 @@ export class DocumentSession {
     this.savedMtime = 0
     this.savedText = ''
     this.dirty = false
+    this.readOnly = null
     return schema.nodes.doc.create(null, schema.nodes.paragraph.create())
   }
 

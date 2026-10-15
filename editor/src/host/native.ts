@@ -53,6 +53,7 @@ export async function createNativeHost(): Promise<{ host: Host; info: AppInfo }>
     watch: (paths) => call('fs.watch', { paths }),
     search: (root, query, options) => call('fs.search', { root, query, ...options }),
     listMarkdown: (root) => call('fs.listMarkdown', { root }),
+    firstHeadings: (paths) => call('fs.firstHeadings', { paths }),
 
     setWindowState: (state) => {
       void call('window.setState', { ...state })
@@ -62,7 +63,12 @@ export async function createNativeHost(): Promise<{ host: Host; info: AppInfo }>
     confirm: (options) => call('dialog.confirm', { ...options }),
     revealInFinder: (path) => call('system.reveal', { path }),
     openExternal: (url) => call('system.openURL', { url }),
-    openDocument: (path, options) => call('app.openDocument', { path, newWindow: options?.newWindow ?? false }),
+    openDocument: (path, options) => call('app.openDocument', { path, newWindow: options?.newWindow ?? false, tab: options?.tab ?? false }),
+    focusDocument: (path) => call('app.focusDocument', { path }),
+    quickLook: (path) => call('system.quickLook', { path }),
+    openWith: (path) => call('system.openWith', { path }),
+    writeClipboard: (text) => call('system.writeClipboard', { text }),
+    readClipboard: () => call('system.readClipboard'),
     openWithDefaultApp: (path) => call('system.openWithDefaultApp', { path }),
     copyImageToClipboard: (path) => call('system.copyImage', { path }),
     fetchLinkPreview: (url) => call('net.linkPreview', { url }),
@@ -75,6 +81,12 @@ export async function createNativeHost(): Promise<{ host: Host; info: AppInfo }>
 
     historyList: (path) => call('history.list', { path }),
     historyRead: (path, id) => call('history.read', { path, id }),
+    historySnapshot: (path, text) => call('history.snapshot', { path, text }),
+    historyDeleted: () => call('history.deleted'),
+
+    draftSave: (id, text) => call('draft.save', { id, text }),
+    draftRemove: (id) => call('draft.remove', { id }),
+    draftPending: () => call('draft.pending'),
 
     exportDocument: (options) => call('export.run', { ...options }),
     print: () => call('export.print'),
