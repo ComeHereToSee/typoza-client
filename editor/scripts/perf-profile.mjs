@@ -1,4 +1,4 @@
-// CI 用的大文档性能剖析:起 Vite 开发服务器(不压缩,函数名保真)→ Chromium 打开编辑器 →
+// CI 用的大文档性能剖析:构建一份不压缩的生产版(与打包进应用的代码一致,函数名保真)并 preview → Chromium 打开编辑器 →
 // 分阶段(解析 / 打开并渲染 / 连续输入 / 切回小文档)计时,并用 CDP 采样剖析器统计每阶段的函数自耗时 Top。
 // 用法:node scripts/perf-profile.mjs <输出目录>
 import { spawn } from 'node:child_process'
@@ -61,7 +61,12 @@ function summarize(profile, n = 40) {
   return { self: top(self), total: top(total) }
 }
 
-const server = spawn('npx', ['vite', '--port', String(PORT), '--strictPort'], { stdio: ['ignore', 'pipe', 'inherit'] })
+// 开发服务器会走依赖的 development 构建(micromark 带断言与 debug),剖析结果失真;这里用生产构建
+await new Promise((resolve, reject) => {
+  const build = spawn('npx', ['vite', 'build', '--minify', 'false', '--outDir', 'dist-perf'], { stdio: 'inherit' })
+  build.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`构建失败:${code}`))))
+})
+const server = spawn('npx', ['vite', 'preview', '--outDir', 'dist-perf', '--port', String(PORT), '--strictPort'], { stdio: ['ignore', 'pipe', 'inherit'] })
 await new Promise((resolve, reject) => {
   const timer = setTimeout(() => reject(new Error('Vite 开发服务器 60 秒内没起来')), 60_000)
   server.stdout.on('data', (d) => {
