@@ -63,6 +63,8 @@ export type ExportFormat =
   | 'textile'
   | 'opml'
 
+export type EmbedCheck = 'ok' | 'refused' | 'unreachable'
+
 export interface ConfirmOptions {
   title: string
   message: string
@@ -158,6 +160,22 @@ export interface Host {
 
   /** 云同步:调用辅助进程的 sync.* 方法;失败抛 SyncError */
   syncCall<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T>
+
+  // 剪贴板、媒体(网页写不了 RTF、读剪贴板会弹系统授权,这些交给外壳)
+  /** 清空剪贴板后写入纯文本,可带 HTML;rtf 为 true 时外壳从同一段 HTML 生成 RTF 一并写入 */
+  clipboardWrite(data: { text: string; html?: string; rtf?: boolean }): Promise<void>
+  /** 剪贴板里的纯文本(没有时为空串) */
+  clipboardText(): Promise<string>
+  /** 把窗口里的一块区域(CSS 像素,相对视口)截成图片放进剪贴板(「复制为图片」) */
+  copyRegionAsImage(rect: { x: number; y: number; width: number; height: number }): Promise<void>
+  /** 执行一次系统「粘贴」(右键菜单里的粘贴:网页自己读不到带格式的剪贴板) */
+  nativePaste(): Promise<void>
+  /** 网址能否被嵌入:站点拒绝(X-Frame-Options / CSP)为 refused,连不上为 unreachable */
+  checkEmbed(url: string): Promise<EmbedCheck>
+  /** 下载网络文件到本机路径(目标已存在时报错) */
+  download(url: string, to: string): Promise<void>
+  /** 用系统「预览」打开本机文件(PDF 选中时 ⌘↩) */
+  openInPreview(path: string): Promise<void>
 
   on<K extends keyof HostEvents>(event: K, handler: (payload: HostEvents[K]) => void): () => void
 }

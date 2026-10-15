@@ -1,4 +1,5 @@
 // 媒体块视图:本地/在线视频与音频、在线嵌入(YouTube、B 站……)、PDF 内嵌、书签卡片、附件。
+// 失败处理按 PRD 3.5:媒体文件丢失、嵌入离线或被拒、书签取不到网页信息都有明确提示。
 import type { Node as PMNode } from 'prosemirror-model'
 import { NodeSelection } from 'prosemirror-state'
 import type { EditorView, NodeView } from 'prosemirror-view'
@@ -6,15 +7,22 @@ import { isVideoEmbed, providerName } from '../core/embed'
 import { type EditorEnv, localPathOf, resourceUrl } from '../core/env'
 import { basename } from '../core/paths'
 import { ICONS, h, svgIcon } from '../ui/dom'
-import type { LinkPreview } from '../host/types'
+import type { EmbedCheck, LinkPreview } from '../host/types'
 
 const previewCache = new Map<string, Promise<LinkPreview | null>>()
+const embedChecks = new Map<string, Promise<EmbedCheck>>()
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
+}
+
+/** 取到的网页信息是否可用:LinkPreview 取不到标题时会退回网址本身。 */
+function usablePreview(p: LinkPreview | null, src: string): LinkPreview | null {
+  const title = p?.title.trim() ?? ''
+  return p && title && title !== src ? p : null
 }
 
 export class MediaView implements NodeView {
@@ -81,6 +89,7 @@ export class MediaView implements NodeView {
     const a = this.node.attrs
     const kind = a.kind as string
     this.dom.dataset.kind = kind
+    this.dom.classList.remove('is-broken', 'tz-embed-failed')
     this.dom.classList.toggle('is-local', localPathOf(this.env, a.src) !== null)
     this.body.replaceChildren()
     const url = resourceUrl(this.env, a.src)
@@ -88,14 +97,16 @@ export class MediaView implements NodeView {
       case 'video': {
         const video = h('video', { src: url, controls: true, preload: 'metadata', playsinline: true })
         if (a.width) video.style.width = /^\d+$/.test(a.width) ? `${a.width}px` : a.width
-        video.addEventListener('error', () => this.showError(`视频无法播放:${a.src}`))
+        video.addEventListener('error', () => this.playbackFailed('视频无法播放'))
         this.body.append(video)
+        this.checkLocalFile()
         break
       }
       case 'audio': {
         const audio = h('audio', { src: url, controls: true, preload: 'metadata' })
-        audio.addEventListener('error', () => this.showError(`音频无法播放:${a.src}`))
+        audio.addEventListener('error', () => this.playbackFailed('音频无法播放'))
         this.body.append(h('div', { class: 'tz-audio-name' }, a.title || basename(a.src)), audio)
+        this.checkLocalFile()
         break
       }
       case 'embed': {
@@ -112,12 +123,14 @@ export class MediaView implements NodeView {
         const wrap = h('div', { class: isVideoEmbed(a.src) ? 'tz-embed tz-embed-video' : 'tz-embed' }, frame)
         if (!isVideoEmbed(a.src) && a.height) wrap.style.height = /^\d+$/.test(a.height) ? `${a.height}px` : a.height
         this.body.append(wrap, h('div', { class: 'tz-embed-caption' }, providerName(a.src)))
+        this.checkEmbed(a.src)
         break
       }
       case 'pdf': {
         const frame = h('iframe', { src: url, class: 'tz-pdf', title: a.title || basename(a.src) })
         if (a.height) frame.style.height = /^\d+$/.test(a.height) ? `${a.height}px` : a.height
         this.body.append(frame, h('div', { class: 'tz-embed-caption' }, a.title || basename(a.src)))
+        this.checkLocalFile()
         break
       }
       case 'bookmark':
@@ -131,15 +144,105 @@ export class MediaView implements NodeView {
     }
   }
 
-  private showError(message: string): void {
+  /**
+   * 错误提示:detail 是原路径等补充信息,actions 是可点的按钮。
+   * replace 为 true 时替换掉播放器 / 预览(文件丢失、嵌入失败);否则附在下方(文件在但播放失败,播放器留着可重试)。
+   */
+  private showError(message: string, detail?: string, actions: HTMLElement[] = [], replace = true): void {
     this.dom.classList.add('is-broken')
-    this.body.append(h('div', { class: 'tz-media-error' }, message))
+    const box = h(
+      'div',
+      { class: 'tz-media-error' },
+      h('div', { class: 'tz-media-error-title' }, message),
+      detail ? h('div', { class: 'tz-media-error-detail' }, detail) : null,
+      actions.length ? h('div', { class: 'tz-media-error-actions' }, ...actions) : null,
+    )
+    if (replace) {
+      this.body.replaceChildren(box)
+      return
+    }
+    this.body.querySelector('.tz-media-error')?.remove()
+    this.body.append(box)
   }
 
-  private renderBookmark(): void {
+  /** 本机媒体文件丢失时显示「找不到媒体文件」与原路径(PRD 3.5 视频与音频)。 */
+  private checkLocalFile(): void {
     const src = this.node.attrs.src as string
-    const title = h('div', { class: 'tz-bookmark-title' }, this.node.attrs.title || src)
-    const desc = h('div', { class: 'tz-bookmark-desc' })
+    const local = localPathOf(this.env, src)
+    if (!local) return
+    void this.env.host.stat(local).then((s) => {
+      if (!s && this.node.attrs.src === src) this.showError('找不到媒体文件', src)
+    })
+  }
+
+  private playbackFailed(message: string): void {
+    const src = this.node.attrs.src as string
+    const local = localPathOf(this.env, src)
+    if (!local) {
+      this.showError(message, src, [], false)
+      return
+    }
+    void this.env.host.stat(local).then((s) => {
+      if (this.node.attrs.src !== src) return
+      if (s) this.showError(message, src, [], false)
+      else this.showError('找不到媒体文件', src)
+    })
+  }
+
+  // ---------- 在线嵌入:离线或站点拒绝时降级(PRD 3.5 在线嵌入、notion-input 三) ----------
+
+  private checkEmbed(src: string): void {
+    if (!navigator.onLine) {
+      this.showEmbedFailure(src, 'unreachable')
+      return
+    }
+    let pending = embedChecks.get(src)
+    if (!pending) {
+      pending = this.env.host.checkEmbed(src).catch((): EmbedCheck => 'unreachable')
+      embedChecks.set(src, pending)
+    }
+    void pending.then((result) => {
+      // 连不上的结果不缓存:网络恢复后重新打开文档会再试
+      if (result === 'unreachable') embedChecks.delete(src)
+      if (result === 'ok' || this.node.attrs.kind !== 'embed' || this.node.attrs.src !== src) return
+      this.showEmbedFailure(src, result)
+    })
+  }
+
+  private showEmbedFailure(src: string, result: 'refused' | 'unreachable'): void {
+    const action = (label: string, run: () => void) => {
+      const b = h('button', { type: 'button', class: 'tz-media-action' }, label)
+      b.addEventListener('click', (e) => {
+        e.stopPropagation()
+        run()
+      })
+      return b
+    }
+    this.showError('无法加载嵌入内容', result === 'refused' ? '该网站不允许嵌入,可改为书签卡片' : src, [
+      action('在浏览器中打开', () => void this.env.host.openExternal(src)),
+      action('改为书签', () => this.convertToBookmark()),
+    ])
+    this.dom.classList.add('tz-embed-failed')
+  }
+
+  /** 【改为书签】:同一网址换成书签卡片,标题留空,由书签视图取网页信息后写回。 */
+  private convertToBookmark(): void {
+    const pos = this.getPos()
+    if (pos === undefined) return
+    this.view.dispatch(
+      this.view.state.tr.setNodeMarkup(pos, null, { ...this.node.attrs, kind: 'bookmark', title: '', description: '', width: null, height: null, html: null }),
+    )
+  }
+
+  // ---------- 书签卡片 ----------
+
+  private renderBookmark(): void {
+    const a = this.node.attrs
+    const src = a.src as string
+    // 标题为空 = 刚插入、还没取过网页信息(已存进文件的书签链接文字至少是网址)
+    const fresh = !a.title
+    const title = h('div', { class: 'tz-bookmark-title' }, a.title || src)
+    const desc = h('div', { class: 'tz-bookmark-desc' }, a.description || (fresh ? '正在获取网页信息…' : ''))
     const link = h('div', { class: 'tz-bookmark-url' }, src)
     const thumb = h('div', { class: 'tz-bookmark-thumb', hidden: true })
     const card = h('a', { class: 'tz-bookmark', href: src, title: src }, h('div', { class: 'tz-bookmark-text' }, title, desc, link), thumb)
@@ -153,16 +256,38 @@ export class MediaView implements NodeView {
       pending = this.env.host.fetchLinkPreview(src).catch(() => null)
       previewCache.set(src, pending)
     }
-    void pending.then((p) => {
-      if (!p || this.node.attrs.src !== src) return
-      if (!this.node.attrs.title && p.title) title.textContent = p.title
-      desc.textContent = p.description
+    void pending.then((raw) => {
+      if (this.node.attrs.src !== src || this.node.attrs.kind !== 'bookmark') return
+      const p = usablePreview(raw, src)
+      if (fresh) {
+        this.writeBack(src, p)
+        return
+      }
+      if (!p) return
+      // 文件里已存的书签:只补显示,不改文件
+      if (!this.node.attrs.description && p.description) desc.textContent = p.description
       if (p.icon) link.prepend(h('img', { class: 'tz-bookmark-icon', src: p.icon, alt: '' }))
       if (p.image) {
         thumb.hidden = false
         thumb.append(h('img', { src: p.image, alt: '', loading: 'lazy' }))
       }
     })
+  }
+
+  /**
+   * 新书签取到网页信息后写回文档:标题成为链接文字,描述写进 title 属性(PRD 3.5 书签卡片)。
+   * 取不到时用网址作标题并提示。写回不进撤销历史:⌘Z 直接撤掉插入书签这一步。
+   */
+  private writeBack(src: string, info: LinkPreview | null): void {
+    const pos = this.getPos()
+    if (pos === undefined) return
+    const node = this.view.state.doc.nodeAt(pos)
+    if (!node || node.type !== this.node.type || node.attrs.src !== src || node.attrs.title) return
+    const title = info ? info.title.trim() : src
+    const description = info ? info.description.replace(/\s+/g, ' ').trim() : ''
+    const tr = this.view.state.tr.setNodeMarkup(pos, null, { ...node.attrs, title, description, html: null })
+    this.view.dispatch(tr.setMeta('addToHistory', false))
+    if (!info) this.env.actions.notify('无法获取网页信息,已用网址作标题')
   }
 
   private renderFile(): void {
@@ -183,12 +308,11 @@ export class MediaView implements NodeView {
 
   update(node: PMNode): boolean {
     if (node.type !== this.node.type) return false
-    const same = node.attrs.kind === this.node.attrs.kind && node.attrs.src === this.node.attrs.src && node.attrs.title === this.node.attrs.title
+    const a = node.attrs
+    const b = this.node.attrs
+    const same = a.kind === b.kind && a.src === b.src && a.title === b.title && a.description === b.description
     this.node = node
-    if (!same) {
-      this.dom.classList.remove('is-broken')
-      this.render()
-    }
+    if (!same) this.render()
     return true
   }
 

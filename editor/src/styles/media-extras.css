@@ -1,0 +1,55 @@
+/* 图片四角手柄与工具条、动图暂停、媒体失败占位、媒体来源浮层、灯箱首尾、查找「选中部分」、空格与换行显示选项、HTML 源码显示。 */
+
+/* 图片:四角尺寸手柄(PRD 3.4 单击) */
+.tz-image-handle-nw { left: -5px; top: -5px; right: auto; bottom: auto; cursor: nwse-resize; }
+.tz-image-handle-ne { right: -5px; top: -5px; left: auto; bottom: auto; cursor: nesw-resize; }
+.tz-image-handle-sw { left: -5px; bottom: -5px; right: auto; top: auto; cursor: nesw-resize; }
+.tz-image-handle-se { right: -5px; bottom: -5px; left: auto; top: auto; cursor: nwse-resize; }
+.tz-image-toolbar { flex-wrap: wrap; justify-content: flex-end; max-width: calc(100% - 12px); }
+.tz-image-tool[hidden] { display: none; }
+.tz-image-still { position: absolute; left: 0; top: 0; width: 100%; height: 100%; border-radius: 4px; pointer-events: none; }
+
+/* 媒体失败占位:找不到媒体文件、无法加载嵌入内容 */
+.tz-media-error { display: flex; flex-direction: column; gap: 4px; }
+.tz-media-error-title { color: var(--tz-text); font-weight: 500; }
+.tz-media-error-detail { font-family: var(--tz-font-mono); font-size: 12px; word-break: break-all; }
+.tz-media-error-actions { display: flex; gap: 8px; margin-top: 6px; }
+.tz-media-action {
+  border: 1px solid var(--tz-border);
+  background: var(--tz-bg);
+  color: var(--tz-text);
+  border-radius: 5px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.tz-media-action:hover { background: var(--tz-bg-hover); }
+
+/* /pdf /video /audio 的来源浮层 */
+.tz-media-source { position: fixed; z-index: 120; }
+.tz-prompt-buttons { display: flex; justify-content: flex-end; gap: 8px; }
+.tz-prompt-secondary {
+  border: 1px solid var(--tz-border);
+  border-radius: 5px;
+  padding: 5px 12px;
+  background: var(--tz-bg);
+  color: var(--tz-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tz-prompt-secondary:hover { background: var(--tz-bg-hover); }
+
+/* 灯箱:网络图片隐藏「用默认应用打开」 */
+.tz-lb-btn[hidden] { display: none; }
+
+/* 查找:「选中部分」范围 */
+.tz-find-scope { background: var(--tz-accent-soft); }
+.tz-find-scope-toggle { font-family: inherit; }
+
+/* 编辑 ▸ 空格与换行 */
+:root.tz-first-line-indent .tz-editor > p { text-indent: 2em; }
+.tz-br-tag { color: var(--tz-text-faint); font-family: var(--tz-font-mono); font-size: 0.85em; user-select: none; }
+.tz-soft-break { white-space: normal; }
+
+/* HTML 中的 style、meta 只显示源码 */
+.tz-html-raw { display: block; white-space: pre-wrap; color: var(--tz-text-faint); font-family: var(--tz-font-mono); font-size: 0.85em; }

@@ -16,6 +16,9 @@ import { slashPlugin } from '../plugins/slash'
 import { suggestPlugin } from '../plugins/suggest'
 import { TABLE_KEYS, tableToolbarPlugin } from '../plugins/table'
 import { toolbarPlugin } from '../plugins/toolbar'
+import { contextMenuPlugin } from '../plugins/contextmenu'
+import { displayPlugin } from '../plugins/display'
+import { mediaKeysPlugin } from '../plugins/media-keys'
 import {
   FootnoteRefView,
   FrontMatterView,
@@ -119,6 +122,10 @@ export function buildPlugins(env: EditorEnv): Plugin[] {
     pastePlugin(env),
     toolbarPlugin(env),
     findPlugin(),
+    // 右键菜单(打开时接管方向键与回车)、媒体选中时的空格 / ⌘↩、「空格与换行」显示选项
+    contextMenuPlugin(env),
+    mediaKeysPlugin(env),
+    displayPlugin(),
     buildInputRules({ smartPunctuation: env.settings.smartPunctuation }),
     autoPairPlugin(env),
     keymap(extraKeys(env)),

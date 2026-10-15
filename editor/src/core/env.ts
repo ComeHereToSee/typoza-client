@@ -40,6 +40,8 @@ export interface EditorActions {
   newDocument(): void
   /** 粘贴或拖入的文件:按类型(图片 / 视频 / 音频 / PDF / 其它)和图片设置拷进资源目录后插入 */
   importFiles(view: EditorView, files: ImportFile[], at?: number): Promise<void>
+  /** 状态栏上方的提示条(书签取不到网页信息、操作失败等) */
+  notify(message: string, error?: boolean): void
 }
 
 export interface DocumentRef {
@@ -124,9 +126,9 @@ export function openImageLightbox(view: EditorView, env: EditorEnv, target: { po
   }
   openLightbox(images, index, {
     reveal: (path) => void env.host.revealInFinder(path),
+    // 网络图片由外壳下载后放进剪贴板(复制的是图像数据,不是网址)
     copy: (img) => {
-      if (img.path) void env.host.copyImageToClipboard(img.path)
-      else void navigator.clipboard.writeText(img.src)
+      env.host.copyImageToClipboard(img.path ?? img.url).catch((err: unknown) => env.actions.notify(`复制图片失败:${err instanceof Error ? err.message : String(err)}`, true))
     },
     openExternal: (img) => {
       if (img.path) void env.host.openWithDefaultApp(img.path)

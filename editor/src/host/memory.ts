@@ -13,6 +13,8 @@ export interface MemoryHost extends Host {
   calls: { method: string; args: unknown[] }[]
   /** 测试预置的「打开」对话框结果,按调用顺序取出;取空时返回 null(相当于取消) */
   dialogQueue: (string[] | null)[]
+  /** 模拟的系统剪贴板(clipboardWrite 写入、clipboardText 读出;测试可直接预置) */
+  clipboard: { text: string; html: string | null; rtf: boolean }
 }
 
 function parentOf(path: string): string {
@@ -83,6 +85,7 @@ export function createMemoryHost(): MemoryHost {
     settings,
     calls,
     dialogQueue: [],
+    clipboard: { text: '', html: null, rtf: false },
     emit(event, payload) {
       for (const fn of listeners.get(event) ?? []) fn(payload)
     },
@@ -221,6 +224,31 @@ export function createMemoryHost(): MemoryHost {
       return paths.map((p) => `https://img.example.com${p}`)
     },
     syncCall: (method, params) => fakeSync(method, params ?? {}) as Promise<never>,
+    async clipboardWrite(data) {
+      record('clipboardWrite', data)
+      host.clipboard = { text: data.text, html: data.html ?? null, rtf: Boolean(data.rtf) }
+    },
+    async clipboardText() {
+      return host.clipboard.text
+    },
+    async copyRegionAsImage(rect) {
+      record('copyRegionAsImage', rect)
+    },
+    async nativePaste() {
+      record('nativePaste')
+    },
+    async checkEmbed(url) {
+      record('checkEmbed', url)
+      return 'ok' as const
+    },
+    async download(url, to) {
+      record('download', url, to)
+      if (files.has(to)) throw new Error(`目标位置已有同名文件:${to}`)
+      put(to, new TextEncoder().encode(`下载自 ${url}`))
+    },
+    async openInPreview(path) {
+      record('openInPreview', path)
+    },
     on(event, handler) {
       let set = listeners.get(event)
       if (!set) listeners.set(event, (set = new Set()))

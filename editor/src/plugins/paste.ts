@@ -1,5 +1,6 @@
 // 粘贴与拖放:纯文本按 Markdown 解析(⇧⌘V 粘贴为纯文本);选中文字时粘贴网址变链接;
 // 单独粘贴网址时弹出「保持链接 / 书签卡片 / 嵌入」菜单(Notion);剪贴板图片与拖入文件拷进资源目录。
+// 拷贝 / 剪切后由外壳整体重写剪贴板并补上 RTF(对照表 E-02)。
 import { Fragment, Slice, type Node as PMNode } from 'prosemirror-model'
 import { Plugin, TextSelection } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
@@ -42,8 +43,36 @@ export function markdownToSlice(text: string, inlineMath: boolean): Slice {
   return Slice.maxOpen(Fragment.fromArray(blocks))
 }
 
+/** 纯文本按字面粘贴:每行一段,不解析 Markdown 符号(⇧⌘V、粘贴并匹配样式,对照表 E-08 / E-09)。 */
+export function plainTextSlice(text: string): Slice {
+  const lines = text.replace(/\r\n?/g, '\n').split('\n')
+  return Slice.maxOpen(Fragment.fromArray(lines.map((l) => n.paragraph.create(null, l ? schema.text(l) : null))))
+}
+
+/** 在当前选区按字面插入纯文本;代码块里直接插入原文。 */
+export function insertPlainText(view: EditorView, text: string): void {
+  const { state } = view
+  const tr = state.selection.$from.parent.type.spec.code ? state.tr.insertText(text.replace(/\r\n?/g, '\n')) : state.tr.replaceSelection(plainTextSlice(text))
+  view.dispatch(tr.scrollIntoView())
+}
+
 function isSingleUrl(text: string): boolean {
   return /^https?:\/\/\S+$/.test(text.trim())
+}
+
+/**
+ * 拷贝 / 剪切:网页只能写 HTML 与纯文本,等网页这次写完剪贴板后,由外壳用同样的 HTML 与文字整体重写一遍并加上 RTF,
+ * 粘进 Word、Pages 保留格式。选区内容要在剪切删除之前取。
+ */
+function copyWithRichText(view: EditorView, env: EditorEnv): void {
+  if (view.state.selection.empty) return
+  const { dom, text } = view.serializeForClipboard(view.state.selection.content())
+  const html = dom.innerHTML
+  window.setTimeout(() => {
+    env.host.clipboardWrite({ text, html, rtf: true }).catch((err: unknown) =>
+      env.actions.notify(`写入剪贴板失败:${err instanceof Error ? err.message : String(err)}`, true),
+    )
+  }, 0)
 }
 
 export function pastePlugin(env: EditorEnv): Plugin {
@@ -74,6 +103,7 @@ export function pastePlugin(env: EditorEnv): Plugin {
       const label = target.kind === 'video' ? '视频' : target.kind === 'audio' ? '音频' : 'PDF'
       items.unshift({ id: 'paste.media', label, icon: '▶', run: () => replaceWithBlock(n.media.create({ kind: target.kind, src: url })) })
     }
+    // 书签标题留空:书签视图取到网页标题、描述后写回文档(取不到时用网址并提示)
     items.push({ id: 'paste.bookmark', label: '书签卡片', icon: '🔖', run: () => replaceWithBlock(n.media.create({ kind: 'bookmark', src: url })) })
     items.push({
       id: 'paste.embed',
@@ -100,10 +130,7 @@ export function pastePlugin(env: EditorEnv): Plugin {
       },
       clipboardTextParser(text, $context, plain) {
         // ⇧⌘V 或在代码块里:按纯文本处理,每行一段
-        if ((plain && shiftHeld) || $context.parent.type.spec.code) {
-          const lines = text.replace(/\r\n?/g, '\n').split('\n')
-          return Slice.maxOpen(Fragment.fromArray(lines.map((l) => n.paragraph.create(null, l ? schema.text(l) : null))))
-        }
+        if ((plain && shiftHeld) || $context.parent.type.spec.code) return plainTextSlice(text)
         return markdownToSlice(text, env.settings.inlineMath)
       },
       handlePaste(view, event) {
@@ -137,6 +164,17 @@ export function pastePlugin(env: EditorEnv): Plugin {
         const pos = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos ?? view.state.selection.from
         void filesFrom(event.dataTransfer.files).then((files) => env.actions.importFiles(view, files, pos))
         return true
+      },
+      handleDOMEvents: {
+        // 只记录,不拦截:网页自己的拷贝照常进行
+        copy: (view) => {
+          copyWithRichText(view, env)
+          return false
+        },
+        cut: (view) => {
+          copyWithRichText(view, env)
+          return false
+        },
       },
     },
     view: () => ({ destroy: () => menu.close('api') }),

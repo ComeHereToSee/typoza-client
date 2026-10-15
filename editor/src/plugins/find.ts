@@ -1,4 +1,5 @@
-// 文内查找与替换(⌘F / ⌥⌘F):大小写、全词、正则;⌘G / ⇧⌘G 跳下一个 / 上一个。
+// 文内查找与替换(⌘F / ⌥⌘F):大小写、全词、正则;⌘G / ⇧⌘G 跳下一个 / 上一个;
+// 可限「选中部分」查找与替换;无结果提示「未找到所查内容」(对照表 E-41、E-43)。
 import type { Node as PMNode } from 'prosemirror-model'
 import { type EditorState, Plugin, PluginKey, TextSelection, type Transaction } from 'prosemirror-state'
 import { Decoration, DecorationSet, type EditorView } from 'prosemirror-view'
@@ -12,15 +13,25 @@ export interface FindOptions {
   regex: boolean
 }
 
+export interface FindRange {
+  from: number
+  to: number
+}
+
 interface FindState extends FindOptions {
-  matches: { from: number; to: number }[]
+  matches: FindRange[]
   current: number
   error: string | null
+  /** 「选中部分」:只在这段范围里查找与替换;null 为全文 */
+  scope: FindRange | null
 }
 
 export const findKey = new PluginKey<FindState>('tz-find')
 
-const EMPTY: FindState = { query: '', caseSensitive: false, wholeWord: false, regex: false, matches: [], current: -1, error: null }
+const EMPTY: FindState = { query: '', caseSensitive: false, wholeWord: false, regex: false, matches: [], current: -1, error: null, scope: null }
+
+/** 无结果时的提示(对照表 E-41 原文)。 */
+export const NOT_FOUND_TEXT = '未找到所查内容'
 
 export function buildPattern(o: FindOptions): RegExp | null {
   if (!o.query) return null
@@ -28,8 +39,8 @@ export function buildPattern(o: FindOptions): RegExp | null {
   return new RegExp(o.wholeWord ? `(?<![\\p{L}\\p{N}_])(?:${source})(?![\\p{L}\\p{N}_])` : source, `gu${o.caseSensitive ? '' : 'i'}`)
 }
 
-/** 在所有文本块里查找;行内原子节点按一个占位字符计,偏移与文档位置一一对应。 */
-export function findMatches(doc: PMNode, o: FindOptions): { matches: { from: number; to: number }[]; error: string | null } {
+/** 在所有文本块里查找;行内原子节点按一个占位字符计,偏移与文档位置一一对应。给了 scope 时只保留完全落在范围内的匹配。 */
+export function findMatches(doc: PMNode, o: FindOptions, scope: FindRange | null = null): { matches: FindRange[]; error: string | null } {
   let re: RegExp | null
   try {
     re = buildPattern(o)
@@ -37,7 +48,7 @@ export function findMatches(doc: PMNode, o: FindOptions): { matches: { from: num
     return { matches: [], error: err instanceof Error ? err.message : String(err) }
   }
   if (!re) return { matches: [], error: null }
-  const matches: { from: number; to: number }[] = []
+  const matches: FindRange[] = []
   doc.descendants((node, pos) => {
     if (!node.isTextblock) return true
     const text = node.textBetween(0, node.content.size, undefined, '\ufffc')
@@ -45,7 +56,9 @@ export function findMatches(doc: PMNode, o: FindOptions): { matches: { from: num
     for (const m of text.matchAll(re)) {
       if (m[0].length === 0) continue
       const from = pos + 1 + (m.index ?? 0)
-      matches.push({ from, to: from + m[0].length })
+      const to = from + m[0].length
+      if (scope && (from < scope.from || to > scope.to)) continue
+      matches.push({ from, to })
       if (matches.length >= 10000) return false
     }
     return false
@@ -59,6 +72,14 @@ function nearest(matches: { from: number }[], pos: number): number {
   return i < 0 ? 0 : i
 }
 
+/** 文档改动后范围跟着移动;两端的插入算在范围内(替换第一个 / 最后一个匹配后范围不缩)。 */
+function mapScope(scope: FindRange | null, tr: Transaction): FindRange | null {
+  if (!scope || !tr.docChanged) return scope
+  const from = tr.mapping.map(scope.from, -1)
+  const to = tr.mapping.map(scope.to, 1)
+  return to > from ? { from, to } : null
+}
+
 export function findPlugin(): Plugin<FindState> {
   return new Plugin<FindState>({
     key: findKey,
@@ -67,23 +88,23 @@ export function findPlugin(): Plugin<FindState> {
       apply(tr, prev, _old, state) {
         const meta = tr.getMeta(findKey) as Partial<FindState> | 'close' | undefined
         if (meta === 'close') return EMPTY
+        const scope = meta && 'scope' in meta ? (meta.scope ?? null) : mapScope(prev.scope, tr)
         if (meta || (tr.docChanged && prev.query)) {
-          const next = { ...prev, ...(meta ?? {}) }
-          const { matches, error } = findMatches(state.doc, next)
+          const next = { ...prev, ...(meta ?? {}), scope }
+          const { matches, error } = findMatches(state.doc, next, scope)
           const current = meta && 'current' in meta ? (meta.current ?? -1) : nearest(matches, state.selection.from)
           return { ...next, matches, error, current: Math.min(current, matches.length - 1) }
         }
-        return prev
+        return scope === prev.scope ? prev : { ...prev, scope }
       },
     },
     props: {
       decorations(state) {
         const st = findKey.getState(state)
-        if (!st || st.matches.length === 0) return null
-        return DecorationSet.create(
-          state.doc,
-          st.matches.map((m, i) => Decoration.inline(m.from, m.to, { class: i === st.current ? 'tz-find-match is-current' : 'tz-find-match' })),
-        )
+        if (!st || (st.matches.length === 0 && !st.scope)) return null
+        const decos = st.matches.map((m, i) => Decoration.inline(m.from, m.to, { class: i === st.current ? 'tz-find-match is-current' : 'tz-find-match' }))
+        if (st.scope) decos.push(Decoration.inline(st.scope.from, st.scope.to, { class: 'tz-find-scope' }))
+        return DecorationSet.create(state.doc, decos)
       },
     },
     view: (view) => new FindPanel(view),
@@ -118,7 +139,7 @@ function replaceAll(view: EditorView, replacement: string): number {
 }
 
 /** 正则模式下支持 $1 等分组引用。 */
-function expand(st: FindState, state: EditorState, m: { from: number; to: number }, replacement: string): string {
+function expand(st: FindState, state: EditorState, m: FindRange, replacement: string): string {
   if (!st.regex) return replacement
   const re = buildPattern(st)
   const text = state.doc.textBetween(m.from, m.to, undefined, '\ufffc')
@@ -131,6 +152,7 @@ class FindPanel {
   private readonly replace: HTMLInputElement
   private readonly count: HTMLSpanElement
   private readonly toggles: Record<'caseSensitive' | 'wholeWord' | 'regex', HTMLButtonElement>
+  private readonly scopeToggle: HTMLButtonElement
 
   constructor(private readonly view: EditorView) {
     this.input = h('input', { class: 'tz-find-input', placeholder: '查找', spellcheck: 'false' })
@@ -149,6 +171,8 @@ class FindPanel {
       wholeWord: toggle('wholeWord', 'ab', '全词匹配'),
       regex: toggle('regex', '.*', '正则表达式'),
     }
+    this.scopeToggle = h('button', { type: 'button', class: 'tz-find-toggle tz-find-scope-toggle', title: '只在正文里选中的部分查找和替换' }, '选中部分')
+    this.scopeToggle.addEventListener('click', () => this.toggleScope())
     const btn = (icon: string, title: string, run: () => void) => {
       const b = h('button', { type: 'button', class: 'tz-find-btn', title }, svgIcon(icon, 14))
       b.addEventListener('click', run)
@@ -173,7 +197,7 @@ class FindPanel {
         btn(ICONS.next, '下一个(⌘G)', () => go(this.view, 1)),
         btn(ICONS.close, '关闭(Esc)', () => this.close()),
       ),
-      h('div', { class: 'tz-find-row tz-find-replace' }, this.replace, replaceOne, replaceAllBtn),
+      h('div', { class: 'tz-find-row tz-find-replace' }, this.replace, this.scopeToggle, replaceOne, replaceAllBtn),
     )
     ;(view.dom.parentElement ?? document.body).append(this.el)
 
@@ -199,6 +223,22 @@ class FindPanel {
     registerCommand({ id: 'find.replaceNext', label: '替换下一个', run: (v) => (replaceCurrent(v, this.replace.value), true) })
   }
 
+  /** 「选中部分」:打开时取正文当前选区为范围(焦点在查找框时正文选区仍保留);再点取消。 */
+  private toggleScope(): void {
+    const st = findKey.getState(this.view.state) ?? EMPTY
+    if (st.scope) {
+      this.view.dispatch(this.view.state.tr.setMeta(findKey, { scope: null }))
+      return
+    }
+    const { from, to, empty } = this.view.state.selection
+    if (empty) {
+      this.count.textContent = '先在正文里选中范围'
+      this.count.classList.add('is-error')
+      return
+    }
+    this.view.dispatch(this.view.state.tr.setMeta(findKey, { scope: { from, to } }))
+  }
+
   open(withReplace: boolean): void {
     this.el.hidden = false
     this.el.classList.toggle('with-replace', withReplace)
@@ -219,8 +259,10 @@ class FindPanel {
   update(view: EditorView): void {
     const st = findKey.getState(view.state) ?? EMPTY
     for (const [k, b] of Object.entries(this.toggles)) b.classList.toggle('is-on', Boolean(st[k as keyof FindPanel['toggles']]))
-    this.count.textContent = st.error ? '正则有误' : st.query ? `${st.matches.length ? st.current + 1 : 0}/${st.matches.length}` : ''
-    this.count.classList.toggle('is-error', Boolean(st.error) || (Boolean(st.query) && st.matches.length === 0))
+    this.scopeToggle.classList.toggle('is-on', st.scope !== null)
+    const notFound = Boolean(st.query) && !st.error && st.matches.length === 0
+    this.count.textContent = st.error ? '正则有误' : notFound ? NOT_FOUND_TEXT : st.query ? `${st.current + 1}/${st.matches.length}` : ''
+    this.count.classList.toggle('is-error', Boolean(st.error) || notFound)
   }
 
   destroy(): void {

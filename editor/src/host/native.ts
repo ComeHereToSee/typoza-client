@@ -86,6 +86,14 @@ export async function createNativeHost(): Promise<{ host: Host; info: AppInfo }>
       return r.result as T
     },
 
+    clipboardWrite: (data) => call('clipboard.write', { text: data.text, html: data.html ?? null, rtf: data.rtf ?? false }),
+    clipboardText: () => call('clipboard.readText'),
+    copyRegionAsImage: (rect) => call('clipboard.snapshot', { ...rect }),
+    nativePaste: () => call('edit.paste'),
+    checkEmbed: (url) => call('net.checkEmbed', { url }),
+    download: (url, to) => call('net.download', { url, to }),
+    openInPreview: (path) => call('system.openInPreview', { path }),
+
     on<K extends keyof HostEvents>(event: K, handler: (payload: HostEvents[K]) => void) {
       let set = listeners.get(event)
       if (!set) listeners.set(event, (set = new Set()))
