@@ -22,6 +22,8 @@ lipo -create \
   "$root/helper/dist/typoza-helper-darwin-arm64" \
   "$root/helper/dist/typoza-helper-darwin-amd64" \
   -output "$app/Contents/MacOS/typoza-helper"
+# CI 的 artifact 上传下载会丢掉可执行位,这里显式补上
+chmod 755 "$app/Contents/MacOS/typoza-helper"
 cp -R "$root/editor/dist" "$app/Contents/Resources/editor"
 if [ -f "$root/app/Support/AppIcon.icns" ]; then cp "$root/app/Support/AppIcon.icns" "$app/Contents/Resources/"; fi
 sed -e "s/__VERSION__/$version/" -e "s/__BUILD__/$build/" "$root/app/Support/Info.plist" > "$app/Contents/Info.plist"
@@ -31,4 +33,5 @@ plutil -lint "$app/Contents/Info.plist"
 codesign --force --sign - --timestamp=none "$app/Contents/MacOS/typoza-helper"
 codesign --force --sign - --timestamp=none "$app"
 codesign --verify --strict --verbose=2 "$app"
+[ -x "$app/Contents/MacOS/typoza-helper" ] || { echo "typoza-helper 不可执行" >&2; exit 1; }
 du -sh "$app"

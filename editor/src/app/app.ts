@@ -4,11 +4,11 @@ import { TextSelection } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
 import { collectHeadings, type HeadingItem } from '../core/blocks'
 import { createEditorState, createEditorView, sliceToMarkdown } from '../core/editor'
-import { type EditorEnv, DEFAULT_EDITOR_SETTINGS, type ImportFile } from '../core/env'
+import { type DocumentRef, type EditorEnv, DEFAULT_EDITOR_SETTINGS, type ImportFile } from '../core/env'
 import { detectEmbed } from '../core/embed'
 import { scrollToAnchor } from '../core/links'
 import { parseMarkdown } from '../core/markdown/parse'
-import { basename, dirname, joinPath, relativePath, resolveLocalPath } from '../core/paths'
+import { basename, dirname, joinPath, markdownHref, relativePath, resolveLocalPath } from '../core/paths'
 import { registerCommand, runCommand } from '../core/registry'
 import { schema } from '../core/schema'
 import { setViewModes } from '../plugins/basics'
@@ -72,6 +72,7 @@ export class App {
         insertLocalMedia: (view, kind) => this.insertLocalMedia(view, kind),
         insertFromUrl: (view, kind) => void this.insertFromUrl(view, kind),
         insertDocLink: (view) => void this.insertDocLink(view),
+        listDocuments: () => this.listDocuments(),
         newDocument: () => void this.runAppCommand('file.newWindow'),
         importFiles: (view, files, at) => this.importFiles(view, files, at),
       },
@@ -556,6 +557,26 @@ export class App {
   }
 
   /** [[ / 「链接到文档」:选当前文件夹里的文档,插入相对链接 [标题](相对路径.md)。 */
+  /** 指向 path 的相对链接(相对当前文档所在文件夹)。 */
+  private docHref(path: string, root: string): string {
+    return markdownHref(relativePath(this.session.path ? dirname(this.session.path) : root, path))
+  }
+
+  /** @ 提及的候选文档:根文件夹(或当前文档所在文件夹)下的 Markdown,最近打开的排前面。 */
+  private async listDocuments(): Promise<DocumentRef[]> {
+    const root = this.sidebar.rootFolder ?? (this.session.path ? dirname(this.session.path) : null)
+    if (!root) return []
+    const files = (await this.host.listMarkdown(root)).filter((p) => p !== this.session.path)
+    const recent = new Map(this.recent.map((p, i) => [p, i]))
+    files.sort((a, b) => (recent.get(a) ?? Infinity) - (recent.get(b) ?? Infinity))
+    return files.map((path) => ({
+      path,
+      title: basename(path).replace(/\.(md|markdown)$/i, ''),
+      dir: relativePath(root, dirname(path)) || '.',
+      href: this.docHref(path, root),
+    }))
+  }
+
   private async insertDocLink(view: EditorView): Promise<void> {
     const root = this.sidebar.rootFolder ?? (this.session.path ? dirname(this.session.path) : null)
     if (!root) {
@@ -568,11 +589,7 @@ export class App {
       files,
       recent: this.recent.filter((p) => p !== this.session.path),
       open: (path) => {
-        const base = this.session.path ? dirname(this.session.path) : root
-        const href = relativePath(base, path)
-          .split('/')
-          .map((seg) => encodeURIComponent(seg))
-          .join('/')
+        const href = this.docHref(path, root)
         const title = basename(path).replace(/\.(md|markdown)$/i, '')
         const { from, to } = view.state.selection
         const tr = view.state.tr.insertText(title, from, to)
@@ -794,7 +811,7 @@ export class App {
     let path = joinPath(dir, `${title}.md`)
     for (let i = 1; await this.host.stat(path); i++) path = joinPath(dir, `${title}-${i}.md`)
     await this.host.writeText(path, `# ${title}\n`)
-    const href = relativePath(dir, path).split('/').map(encodeURIComponent).join('/')
+    const href = markdownHref(relativePath(dir, path))
     const start = $from.start()
     const end = $from.end()
     const tr = this.view.state.tr.replaceWith(start, end, schema.text(title, [schema.marks.link.create({ href })]))

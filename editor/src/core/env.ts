@@ -34,10 +34,21 @@ export interface EditorActions {
   insertFromUrl(view: EditorView, kind: 'image' | 'embed' | 'bookmark' | 'video' | 'audio'): void
   /** 选择文档并插入相对链接(Notion 的 [[ ) */
   insertDocLink(view: EditorView): void
+  /** 当前文件夹里可提及的文档(Notion 的 @),href 已是相对当前文档的链接 */
+  listDocuments(): Promise<DocumentRef[]>
   /** 新建文档(Notion ⌘⌥9) */
   newDocument(): void
   /** 粘贴或拖入的文件:按类型(图片 / 视频 / 音频 / PDF / 其它)和图片设置拷进资源目录后插入 */
   importFiles(view: EditorView, files: ImportFile[], at?: number): Promise<void>
+}
+
+export interface DocumentRef {
+  path: string
+  /** 文件名去掉扩展名 */
+  title: string
+  /** 所在文件夹(相对根文件夹,菜单提示用) */
+  dir: string
+  href: string
 }
 
 export interface ImportFile {

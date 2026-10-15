@@ -75,3 +75,11 @@ export function resolveLocalPath(src: string, ctx: DocContext): string | null {
   if (!ctx.path) return null
   return joinPath(dirname(ctx.path), clean)
 }
+
+/**
+ * 相对路径 → Markdown 链接地址:中文等字符保持原样(与 Typora 一致,源码可读),
+ * 只转义会截断或改变链接含义的 ASCII 字符(空格、制表、换行、括号、尖括号、%、#、?)。
+ */
+export function markdownHref(relPath: string): string {
+  return relPath.replace(/[ \t\n()<>%#?]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`)
+}

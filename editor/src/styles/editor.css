@@ -430,3 +430,8 @@ p > .tz-image:only-child { display: block; width: fit-content; margin: 4px auto;
 /* 专注模式:非当前块变淡(Typora) */
 .tz-focus-mode > * { opacity: 0.32; transition: opacity 0.15s; }
 .tz-focus-mode > .tz-focused { opacity: 1; }
+
+/* 表情短码 :smile:(Typora 语法):显示表情,源文字隐藏但保留;光标移上去时插件撤掉装饰 */
+.tz-emoji-src { font-size: 0; }
+.tz-emoji { font-style: normal; }
+.tz-suggest-menu .tz-menu-icon { font-size: 17px; }

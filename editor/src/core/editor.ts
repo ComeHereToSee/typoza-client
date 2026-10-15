@@ -8,10 +8,12 @@ import { type Command, EditorState, type Plugin, type Transaction } from 'prosem
 import { tableEditing } from 'prosemirror-tables'
 import { EditorView } from 'prosemirror-view'
 import { autoPairPlugin, editingPlugin, placeholderPlugin, tocRefreshPlugin, viewModesPlugin } from '../plugins/basics'
+import { emojiShortcodePlugin } from '../plugins/emoji-shortcodes'
 import { findPlugin } from '../plugins/find'
 import { blockHandlePlugin } from '../plugins/handle'
 import { pastePlugin } from '../plugins/paste'
 import { slashPlugin } from '../plugins/slash'
+import { suggestPlugin } from '../plugins/suggest'
 import { TABLE_KEYS, tableToolbarPlugin } from '../plugins/table'
 import { toolbarPlugin } from '../plugins/toolbar'
 import {
@@ -113,6 +115,7 @@ function tableKeys(): Record<string, Command> {
 export function buildPlugins(env: EditorEnv): Plugin[] {
   return [
     slashPlugin(env),
+    suggestPlugin(env),
     pastePlugin(env),
     toolbarPlugin(env),
     findPlugin(),
@@ -126,6 +129,7 @@ export function buildPlugins(env: EditorEnv): Plugin[] {
     gapCursor(),
     tableEditing(),
     placeholderPlugin(),
+    emojiShortcodePlugin(),
     editingPlugin(),
     tocRefreshPlugin(),
     viewModesPlugin(),
