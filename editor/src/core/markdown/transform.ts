@@ -88,13 +88,14 @@ function paragraphHtml(p: Paragraph, source: string): string | null {
 
 function mediaFromElement(el: Element, html: string): TzMedia | null {
   const tag = el.tagName
-  const make = (kind: MediaKind, src: string, title = ''): TzMedia => ({
+  const make = (kind: MediaKind, src: string, title = '', description = ''): TzMedia => ({
     type: 'tzMedia',
     kind,
     src,
     title,
     width: el.getAttribute('width'),
     height: el.getAttribute('height'),
+    description,
     html,
   })
   if (tag === 'VIDEO' || tag === 'AUDIO') {
@@ -110,7 +111,8 @@ function mediaFromElement(el: Element, html: string): TzMedia | null {
   if (tag === 'A') {
     const type = el.getAttribute('data-tz-type')
     const href = el.getAttribute('href')
-    if ((type === 'bookmark' || type === 'file') && href) return make(type, href, el.textContent ?? '')
+    // 书签的网页描述存在链接的 title 属性里(对应 PRD `[标题](网址 "描述")` 的链接标题)
+    if ((type === 'bookmark' || type === 'file') && href) return make(type, href, el.textContent ?? '', el.getAttribute('title') ?? '')
   }
   return null
 }

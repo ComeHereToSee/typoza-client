@@ -64,16 +64,69 @@ function processorFor(inlineMath: boolean): Processor<Root> {
   return p
 }
 
+// ---------- 解析时转化 Unicode 标点(对照表 E-36,默认关) ----------
+
+let unicodePunctuation = false
+
+/** 开关「解析 Markdown 时允许并转化 Unicode 标点」;只影响之后的解析。 */
+export function setUnicodePunctuation(on: boolean): void {
+  unicodePunctuation = on
+}
+
+// 全角块标记 → 半角:》＞ → >、＃ → #、－＊＋ → -*+、全角句点 → .、全角空格 → 空格(全角数字按码位差换算)
+const HALF_WIDTH: Record<string, string> = {
+  '\u300B': '>',
+  '\uFF1E': '>',
+  '\uFF03': '#',
+  '\uFF0D': '-',
+  '\uFF0A': '*',
+  '\uFF0B': '+',
+  '\uFF0E': '.',
+  '\u3000': ' ',
+}
+const LINE_MARKER =
+  /^([ \t]*)((?:[\u300B\uFF1E][ \t\u3000]?)+|\uFF03{1,6}[ \t\u3000]|[\uFF0D\uFF0A\uFF0B][ \t\u3000]|[0-9\uFF10-\uFF19]{1,9}\uFF0E[ \t\u3000])/
+const FULL_WIDTH_CHAR = /[\u300B\uFF1E\uFF03\uFF0D\uFF0A\uFF0B\uFF0E\u3000\uFF10-\uFF19]/g
+const FENCE_LINE = /^[ \t]{0,3}(`{3,}|~{3,})/
+
+/**
+ * 行首的全角块标记换成等长的半角标记(例:》引用 → >引用)。逐字符等长替换,解析出的位置与原文一一对应,
+ * 未编辑的块仍按原文写回(不改写原文);围栏代码块里的行不动。
+ */
+export function normalizeUnicodeMarkers(text: string): string {
+  let fence: string | null = null
+  return text
+    .split('\n')
+    .map((line) => {
+      const f = FENCE_LINE.exec(line)
+      if (fence !== null) {
+        if (f && f[1][0] === fence[0] && f[1].length >= fence.length) fence = null
+        return line
+      }
+      if (f) {
+        fence = f[1]
+        return line
+      }
+      return line.replace(
+        LINE_MARKER,
+        (_m, indent: string, mark: string) => indent + mark.replace(FULL_WIDTH_CHAR, (c) => HALF_WIDTH[c] ?? String.fromCharCode(c.charCodeAt(0) - 0xfee0)),
+      )
+    })
+    .join('\n')
+}
+
 export function parseMarkdown(markdown: string, options: ParseOptions): ParsedDoc {
   const bom = markdown.startsWith('\uFEFF')
   let text = bom ? markdown.slice(1) : markdown
   const lineEnding: DocMeta['lineEnding'] = text.includes('\r\n') ? '\r\n' : '\n'
   text = text.replace(/\r\n?/g, '\n')
 
-  const tree = processorFor(options.inlineMath).parse(text) as Root
-  transformTree(tree, text)
+  // 「解析时转化 Unicode 标点」开启时按半角标记解析;替换是等长的,原文切片(blockSources)仍取未改动的 text
+  const source = unicodePunctuation ? normalizeUnicodeMarkers(text) : text
+  const tree = processorFor(options.inlineMath).parse(source) as Root
+  transformTree(tree, source)
 
-  const conv = new ToProseMirror(text)
+  const conv = new ToProseMirror(source)
   conv.collectDefinitions(tree)
 
   const blocks: PMNode[] = []
@@ -180,7 +233,7 @@ class ToProseMirror {
         return [n.footnote_def.create({ label: node.label ?? node.identifier }, this.blocksNonEmpty(node.children))]
       case 'tzMedia':
         return [
-          n.media.create({ kind: node.kind, src: node.src, title: node.title, width: node.width, height: node.height, html: node.html }),
+          n.media.create({ kind: node.kind, src: node.src, title: node.title, width: node.width, height: node.height, description: node.description, html: node.html }),
         ]
       case 'tzToc':
         return [n.toc.create()]

@@ -58,6 +58,10 @@ class Lightbox {
   private readonly caption: HTMLDivElement
   private readonly zoomLabel: HTMLSpanElement
   private readonly status: HTMLDivElement
+  private readonly prevButton: HTMLButtonElement
+  private readonly nextButton: HTMLButtonElement
+  private readonly revealButton: HTMLButtonElement
+  private readonly openButton: HTMLButtonElement
   private natural = { w: 0, h: 0 }
   private view: ViewState = { scale: 1, tx: 0, ty: 0, rotation: 0 }
   private fitted = true
@@ -99,6 +103,12 @@ class Lightbox {
         svgIcon(icon, 18),
       )
 
+    // 本机图片【在 Finder 中显示】,网络图片换成【在浏览器中打开】(PRD 3.4 灯箱内操作)
+    this.revealButton = button(ICONS.finder, '在 Finder 中显示', () => {
+      if (this.image.path) this.actions.reveal(this.image.path)
+      else this.actions.openExternal(this.image)
+    }, 'tz-lb-reveal')
+    this.openButton = button(ICONS.external, '用默认应用打开', () => this.actions.openExternal(this.image), 'tz-lb-open')
     const toolbar = h(
       'div',
       { class: 'tz-lb-toolbar', onpointerdown: ((e: Event) => e.stopPropagation()) as EventListener },
@@ -108,17 +118,17 @@ class Lightbox {
       button(ICONS.zoomIn, '放大(+)', () => this.zoomBy(1.25)),
       button(ICONS.fit, '适配窗口(0)', () => this.fit(true)),
       button(ICONS.actual, '原始大小(1)', () => this.actualSize()),
-      button(ICONS.rotate, '旋转(R)', () => this.rotate(90)),
-      button(ICONS.copy, '复制图片(⌘C)', () => this.actions.copy(this.image)),
-      button(ICONS.finder, '在 Finder 中显示', () => {
-        if (this.image.path) this.actions.reveal(this.image.path)
-      }, 'tz-lb-reveal'),
-      button(ICONS.external, '用默认应用打开', () => this.actions.openExternal(this.image)),
+      button(ICONS.rotate, '旋转(R)', () => this.rotate(90), 'tz-lb-rotate'),
+      button(ICONS.copy, '复制图片(⌘C)', () => this.actions.copy(this.image), 'tz-lb-copy'),
+      this.revealButton,
+      this.openButton,
       button(ICONS.close, '关闭(Esc)', () => this.close(true)),
     )
 
     const prev = button(ICONS.prev, '上一张(←)', () => this.go(-1), 'tz-lb-nav tz-lb-prev')
     const next = button(ICONS.next, '下一张(→)', () => this.go(1), 'tz-lb-nav tz-lb-next')
+    this.prevButton = prev
+    this.nextButton = next
 
     this.root = h(
       'div',
@@ -147,7 +157,14 @@ class Lightbox {
     const image = this.image
     this.counter.textContent = this.images.length > 1 ? `${this.index + 1} / ${this.images.length}` : ''
     this.caption.textContent = image.alt || image.src
-    this.root.querySelector('.tz-lb-reveal')?.toggleAttribute('disabled', !image.path)
+    const revealTitle = image.path ? '在 Finder 中显示' : '在浏览器中打开'
+    this.revealButton.title = revealTitle
+    this.revealButton.setAttribute('aria-label', revealTitle)
+    this.revealButton.replaceChildren(svgIcon(image.path ? ICONS.finder : ICONS.external, 18))
+    this.openButton.hidden = !image.path
+    // 首尾不循环(PRD 3.4):到头时对应方向的按钮不可用
+    this.prevButton.disabled = this.index === 0
+    this.nextButton.disabled = this.index === this.images.length - 1
     this.status.textContent = '正在加载…'
     this.status.hidden = false
     this.img.hidden = true
@@ -163,7 +180,8 @@ class Lightbox {
       this.preloadNeighbors()
     }
     this.img.onerror = () => {
-      this.status.textContent = `图片加载失败:${image.src}`
+      // 文案见 PRD 3.4「插入与失败」;原路径在底部说明里
+      this.status.textContent = '图片无法加载'
       this.status.hidden = false
       this.img.hidden = true
     }
@@ -172,8 +190,8 @@ class Lightbox {
 
   private preloadNeighbors(): void {
     for (const d of [-1, 1]) {
-      const n = this.images[(this.index + d + this.images.length) % this.images.length]
-      if (n && n !== this.image) new Image().src = n.url
+      const n = this.images[this.index + d]
+      if (n) new Image().src = n.url
     }
   }
 
@@ -196,9 +214,11 @@ class Lightbox {
     )
   }
 
+  /** 按文中顺序前后切换;到第一张 / 最后一张就停住,不循环。 */
   private go(delta: number): void {
-    if (this.images.length < 2) return
-    this.index = (this.index + delta + this.images.length) % this.images.length
+    const next = this.index + delta
+    if (next < 0 || next >= this.images.length) return
+    this.index = next
     this.show(false)
   }
 

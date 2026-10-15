@@ -220,7 +220,7 @@ export function imageHtml(img: Omit<TzHtmlImage, 'type'>): string {
   return `<img ${attrs.join(' ')} />`
 }
 
-export function mediaHtml(attrs: { kind: string; src: string; title: string; width: string | null; height: string | null }): string {
+export function mediaHtml(attrs: { kind: string; src: string; title: string; width: string | null; height: string | null; description?: string }): string {
   const src = escapeAttr(attrs.src)
   switch (attrs.kind) {
     case 'video':
@@ -232,8 +232,12 @@ export function mediaHtml(attrs: { kind: string; src: string; title: string; wid
     case 'embed':
       return `<iframe src="${src}" width="${escapeAttr(attrs.width ?? '100%')}" height="${escapeAttr(attrs.height ?? '400')}" frameborder="0" allowfullscreen></iframe>`
     case 'bookmark':
-    case 'file':
-      return `<a href="${src}" data-tz-type="${attrs.kind}">${escapeHtml(attrs.title || attrs.src)}</a>`
+    case 'file': {
+      // 书签取到的网页描述写进 title 属性;合成一行,避免描述里的空行把 HTML 截断
+      const description = attrs.description?.replace(/\s+/g, ' ').trim()
+      const titleAttr = description ? ` title="${escapeAttr(description)}"` : ''
+      return `<a href="${src}"${titleAttr} data-tz-type="${attrs.kind}">${escapeHtml(attrs.title || attrs.src)}</a>`
+    }
     default:
       throw new Error(`未知媒体类型:${attrs.kind}`)
   }
@@ -314,6 +318,7 @@ function blockToMdast(node: PMNode): RootContent {
       title: a.title,
       width: a.width,
       height: a.height,
+      description: a.description,
       html: a.html ?? mediaHtml(a as Parameters<typeof mediaHtml>[0]),
     }
   }

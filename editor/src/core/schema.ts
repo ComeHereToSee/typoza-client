@@ -222,6 +222,8 @@ const nodes: Record<string, NodeSpec> = {
       width: { default: null },
       height: { default: null },
       html: { default: null },
+      // 书签卡片的网页描述(存在 <a title="…">)
+      description: { default: '' },
     },
     group: 'block',
     atom: true,

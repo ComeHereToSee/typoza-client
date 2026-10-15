@@ -7,6 +7,7 @@ import { rememberColor } from '../core/selection-commands'
 import { runCommand } from '../core/registry'
 import { NOTION_COLORS } from '../core/schema'
 import type { MenuItem } from '../ui/menu'
+import { chooseMediaSource } from './media-insert'
 
 export interface BlockKindDef {
   kind: BlockKind
@@ -129,11 +130,11 @@ export function slashItems(view: EditorView, env: EditorEnv): MenuItem[] {
   const media: MenuItem[] = [
     { id: 'slash.image', label: '图片', icon: '🖼', group: '媒体', keywords: ['image', 'picture', 'img', 'tupian', 'tp'], run: () => void env.actions.insertLocalMedia(view, 'image') },
     { id: 'slash.imageUrl', label: '网络图片', icon: '🌐', group: '媒体', keywords: ['image', 'url', 'tupian'], run: () => env.actions.insertFromUrl(view, 'image') },
-    { id: 'slash.video', label: '视频', icon: '🎬', group: '媒体', keywords: ['video', 'movie', 'mp4', 'shipin', 'sp'], run: () => void env.actions.insertLocalMedia(view, 'video') },
-    { id: 'slash.audio', label: '音频', icon: '🎵', group: '媒体', keywords: ['audio', 'music', 'mp3', 'yinpin'], run: () => void env.actions.insertLocalMedia(view, 'audio') },
+    { id: 'slash.video', label: '视频', icon: '🎬', group: '媒体', keywords: ['video', 'movie', 'mp4', 'shipin', 'sp'], run: () => chooseMediaSource(view, env, 'video') },
+    { id: 'slash.audio', label: '音频', icon: '🎵', group: '媒体', keywords: ['audio', 'music', 'mp3', 'yinpin'], run: () => chooseMediaSource(view, env, 'audio') },
     { id: 'slash.embed', label: '嵌入网页 / 视频', icon: '▶', group: '媒体', keywords: ['embed', 'youtube', 'bilibili', 'iframe', 'qianru'], run: () => env.actions.insertFromUrl(view, 'embed') },
     { id: 'slash.bookmark', label: '网页书签', icon: '🔖', group: '媒体', keywords: ['bookmark', 'web', 'shuqian'], run: () => env.actions.insertFromUrl(view, 'bookmark') },
-    { id: 'slash.pdf', label: 'PDF', icon: '📄', group: '媒体', keywords: ['pdf'], run: () => void env.actions.insertLocalMedia(view, 'pdf') },
+    { id: 'slash.pdf', label: 'PDF', icon: '📄', group: '媒体', keywords: ['pdf'], run: () => chooseMediaSource(view, env, 'pdf') },
     { id: 'slash.file', label: '附件', icon: '📎', group: '媒体', keywords: ['file', 'attachment', 'fujian'], run: () => void env.actions.insertLocalMedia(view, 'file') },
   ]
   const colors = colorItems(view, true).map((it) => ({ ...it, group: it.group === '背景色' ? '背景色' : '文字颜色' }))

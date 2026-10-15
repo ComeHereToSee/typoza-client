@@ -274,6 +274,11 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
                 return nil
             }
         case "system.copyImage":
+            // 网络图片(「拷贝图片」、灯箱复制):先下载再放进剪贴板
+            if let remote = URL(string: params.optionalString("path") ?? ""), ["http", "https"].contains(remote.scheme?.lowercased() ?? "") {
+                copyRemoteImage(remote, reply: reply)
+                return
+            }
             sync {
                 let path = try params.string("path")
                 guard let image = NSImage(contentsOfFile: path) else { throw BridgeError("无法读取图片:\(path)") }
@@ -323,6 +328,32 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
             printDocument()
         case "image.upload":
             background { try ImageUpload.run(command: try params.string("command"), paths: params.strings("paths")) }
+
+        // 剪贴板、复制为图片、右键粘贴、嵌入检测、下载、用「预览」打开(实现见 DocumentWindowController+Media.swift)
+        case "clipboard.write":
+            sync {
+                try writeClipboard(text: try params.string("text"), html: params.optionalString("html"), rtf: params.bool("rtf"))
+                return nil
+            }
+        case "clipboard.readText":
+            sync { NSPasteboard.general.string(forType: .string) ?? "" }
+        case "clipboard.snapshot":
+            snapshotToClipboard(params, reply: reply)
+        case "edit.paste":
+            reply(nil, nil)
+            _ = NSApp.sendAction(#selector(NSText.paste(_:)), to: webView, from: nil)
+        case "net.checkEmbed":
+            guard let url = URL(string: params.optionalString("url") ?? ""), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+                reply(nil, "网址无效")
+                return
+            }
+            EmbedPolicy.check(url) { result in
+                DispatchQueue.main.async { reply(result.rawValue, nil) }
+            }
+        case "net.download":
+            download(params, reply: reply)
+        case "system.openInPreview":
+            openInPreview(params, reply: reply)
 
         default:
             reply(nil, "未知桥接方法:\(method)")

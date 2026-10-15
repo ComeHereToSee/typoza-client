@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { openApp } from './helpers'
+import { loadDoc, openApp } from './helpers'
 
 // 用户点名场景:文档里有标题、段落、表单截图、配置表格混排,双击任意图片(包括表格里的)放大查看。
 test.describe('图片灯箱', () => {
@@ -63,5 +63,40 @@ test.describe('图片灯箱', () => {
     await page.locator('.tz-editor > p .tz-image img').first().click()
     await page.keyboard.press(' ')
     await expect(page.locator('.tz-lightbox')).toBeVisible()
+  })
+
+  // PRD 3.4 灯箱内操作:首尾不循环、旋转、复制;失败提示「图片无法加载」
+  test('首尾不循环:第一张按 ← 停住,最后一张按 → 停住', async ({ page }) => {
+    await page.locator('.tz-editor > p .tz-image').first().dblclick()
+    const counter = page.locator('.tz-lb-counter')
+    await expect(counter).toHaveText('1 / 4')
+    await expect(page.locator('.tz-lb-prev')).toBeDisabled()
+    await page.keyboard.press('ArrowLeft')
+    await expect(counter).toHaveText('1 / 4')
+    for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight')
+    await expect(counter).toHaveText('4 / 4')
+    await expect(page.locator('.tz-lb-next')).toBeDisabled()
+    await page.keyboard.press('ArrowRight')
+    await expect(counter).toHaveText('4 / 4')
+  })
+
+  test('旋转每次 90°,复制图片交给外壳', async ({ page }) => {
+    await page.locator('.tz-editor > p .tz-image').first().dblclick()
+    const img = page.locator('.tz-lb-img')
+    await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0)
+    await page.locator('.tz-lb-rotate').click()
+    await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.style.transform)).toContain('rotate(90deg)')
+    await page.keyboard.press('r')
+    await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.style.transform)).toContain('rotate(180deg)')
+    await page.locator('.tz-lb-copy').click()
+    await expect
+      .poll(() => page.evaluate(() => window.typozaTest!.host.calls.filter((c) => c.method === 'copyImageToClipboard').map((c) => c.args)))
+      .toEqual([['/demo/assets/form.svg']])
+  })
+
+  test('图片加载失败:灯箱内提示「图片无法加载」', async ({ page }) => {
+    await loadDoc(page, '![丢失](assets/missing.png)\n')
+    await page.locator('.tz-editor .tz-image').dblclick()
+    await expect(page.locator('.tz-lb-status')).toHaveText('图片无法加载')
   })
 })

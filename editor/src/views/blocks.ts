@@ -4,7 +4,7 @@ import type { Node as PMNode } from 'prosemirror-model'
 import { TextSelection } from 'prosemirror-state'
 import type { EditorView, NodeView } from 'prosemirror-view'
 import { collectHeadings } from '../core/blocks'
-import { setToggleOpen } from '../core/commands'
+import { insertBlock, setToggleOpen } from '../core/commands'
 import { type EditorEnv, openImageLightbox, resourceUrl } from '../core/env'
 import { schema } from '../core/schema'
 import { ICONS, h, svgIcon } from '../ui/dom'
@@ -153,9 +153,24 @@ export class TocView implements NodeView {
 
 // ---------- HTML ----------
 
+/** style、meta 不生效,换成显示其源码的 <code>(对照表 X-44:style、meta 只显示源码)。 */
+export function showStyleAndMetaAsSource(html: string): string {
+  if (!/<(style|meta)\b/i.test(html)) return html
+  // <template> 里解析:<style>、<meta> 留在原位,不会像 DOMParser 那样被挪进 <head>
+  const template = document.createElement('template')
+  template.innerHTML = html
+  for (const el of Array.from(template.content.querySelectorAll('style, meta'))) {
+    const code = document.createElement('code')
+    code.className = 'tz-html-raw'
+    code.textContent = el.outerHTML
+    el.replaceWith(code)
+  }
+  return template.innerHTML
+}
+
 /** 净化并改写资源地址:本机图片、视频走 typoza://local/。 */
 export function sanitizeHtml(html: string, env: EditorEnv): DocumentFragment {
-  const fragment = DOMPurify.sanitize(html, {
+  const fragment = DOMPurify.sanitize(showStyleAndMetaAsSource(html), {
     RETURN_DOM_FRAGMENT: true,
     ADD_TAGS: ['iframe', 'video', 'audio', 'source', 'details', 'summary', 'kbd'],
     ADD_ATTR: ['allowfullscreen', 'frameborder', 'controls', 'loop', 'muted', 'playsinline', 'target', 'align'],
@@ -193,14 +208,16 @@ export class HtmlBlockView implements NodeView {
       }
     })
     this.preview.addEventListener('mousedown', (e) => {
-      if ((e.target as HTMLElement).closest('a, video, audio, iframe, summary')) return
-      if (e.detail > 1) return
-      // 单击预览进入源码编辑
+      if (!this.wantsSource(e)) return
       const pos = this.getPos()
       if (pos === undefined) return
       e.preventDefault()
       this.view.focus()
       this.view.dispatch(this.view.state.tr.setSelection(TextSelection.create(this.view.state.doc, pos + 1)))
+    })
+    // ⌘+点击链接是展开源码,不跳转
+    this.preview.addEventListener('click', (e) => {
+      if (e.metaKey && (e.target as HTMLElement).closest('a')) e.preventDefault()
     })
     this.render()
   }
@@ -225,13 +242,42 @@ export class HtmlBlockView implements NodeView {
     return true
   }
 
+  /**
+   * 点击预览的空白处或 ⌘+点击才展开源码(对照表 X-45);点在文字、链接、图片、媒体上照常交互。
+   * 注释块整块都是源码文字,单击即展开。
+   */
+  private wantsSource(e: MouseEvent): boolean {
+    if (e.button !== 0 || e.detail > 1) return false
+    if (e.metaKey || this.dom.classList.contains('is-comment')) return true
+    if ((e.target as HTMLElement).closest('a, img, video, audio, iframe, summary, button, input, select, textarea')) return false
+    return !pointOnText(e.clientX, e.clientY)
+  }
+
   stopEvent(e: Event): boolean {
-    return this.preview.contains(e.target as Node) && e.type !== 'mousedown'
+    if (!this.preview.contains(e.target as Node)) return false
+    // 不展开源码的点击不交给编辑器,否则光标会落进隐藏的源码里
+    if (e.type === 'mousedown') return !this.wantsSource(e as MouseEvent)
+    return true
   }
 
   ignoreMutation(m: MutationRecord | { type: 'selection'; target: Node }): boolean {
     return this.preview.contains(m.target as Node)
   }
+}
+
+/** 坐标是否落在文字上(而不是元素的空白处)。 */
+function pointOnText(x: number, y: number): boolean {
+  const caret = document.caretRangeFromPoint(x, y)
+  const node = caret?.startContainer
+  if (!node || node.nodeType !== Node.TEXT_NODE) return false
+  const range = document.createRange()
+  range.selectNodeContents(node)
+  return Array.from(range.getClientRects()).some((r) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom)
+}
+
+/** 插入 HTML 块(右键「插入 ▸ HTML 内容」、斜杠 /html,对照表 P-38):光标进入源码。 */
+export function insertHtmlBlock(view: EditorView): boolean {
+  return insertBlock(schema.nodes.html_block.create())(view.state, view.dispatch)
 }
 
 export class HtmlInlineView implements NodeView {

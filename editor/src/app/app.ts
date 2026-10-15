@@ -19,6 +19,8 @@ import { promptInput, validateUrl } from '../ui/prompt'
 import { resetMacros } from '../views/katex'
 import { importFile } from './assets'
 import { DocumentSession, frontMatterInfo, updateFrontMatterText } from './document'
+import { loadEditSettings, registerEditCommands } from './edit-commands'
+import { registerImageCommands } from './images'
 import { buildExportHtml } from './exporter'
 import { countWords, showHistory, showSettings, showWordCount } from './panels'
 import { SyncController } from './sync'
@@ -76,6 +78,7 @@ export class App {
         listDocuments: () => this.listDocuments(),
         newDocument: () => void this.runAppCommand('file.newWindow'),
         importFiles: (view, files, at) => this.importFiles(view, files, at),
+        notify: (message, error) => this.toast(message, error),
       },
       openDocumentLink: (target, newWindow) => void this.openLink(target, newWindow),
     }
@@ -92,6 +95,7 @@ export class App {
 
   async init(): Promise<void> {
     this.settings = await loadSettings(this.host)
+    await loadEditSettings(this.host)
     this.syncEditorSettings()
     this.sidebar = new Sidebar(this.host, {
       openFile: (path, newWindow) => void this.openFile(path, { newWindow }),
@@ -794,7 +798,25 @@ export class App {
       void navigator.clipboard.writeText(dom.innerHTML)
     })
     cmd('block.toDocument', '转为新文档', () => void this.blockToDocument())
-    cmd('insert.image', '插入图片…', () => void this.insertLocalMedia(this.view, 'image'))
+    // 「格式 ▸ 图像」(含 insert.image)与「编辑」菜单补齐的命令
+    registerImageCommands({
+      host: this.host,
+      env: this.env,
+      settings: () => this.settings,
+      docPath: () => this.session.path,
+      toast: (message, error) => this.toast(message, error),
+      importFile: (file) => importFile(this.importContext(), file),
+      setFrontMatter: (key, value) => this.setFrontMatter(key, value),
+      openPreferences: (page) => showSettings(this.settings, (patch) => void this.updateSettings(patch), this.extraSettingsSections, page),
+    })
+    registerEditCommands({
+      host: this.host,
+      session: this.session,
+      settings: () => this.settings,
+      updateSettings: (patch) => this.updateSettings(patch),
+      markDirty: () => this.onDocChange(),
+      toast: (message, error) => this.toast(message, error),
+    })
   }
 
   /** 其它模块(如云同步)往偏好设置里加的页签。 */

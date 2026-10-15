@@ -28,6 +28,8 @@ export interface TzMedia extends Node {
   title: string
   width: string | null
   height: string | null
+  /** 书签卡片的网页描述(<a title>) */
+  description: string
   /** 原文 HTML;未编辑时原样写回 */
   html: string
 }
