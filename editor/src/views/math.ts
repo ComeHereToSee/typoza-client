@@ -1,9 +1,47 @@
 // 公式:块级公式显示渲染结果,光标进入时下方露出源码(Typora);行内公式点击弹出编辑框(Notion)。
+// 公式选项(自动编号、physics、\\ 换行)读偏好;\ref 按全文编号解析;「刷新所有数学公式」与复制为 TeX / MathML 命令也在这里。
 import type { Node as PMNode } from 'prosemirror-model'
-import { NodeSelection, TextSelection } from 'prosemirror-state'
+import { type EditorState, NodeSelection, Plugin, TextSelection } from 'prosemirror-state'
 import type { EditorView, NodeView } from 'prosemirror-view'
+import { EDITOR_OPTION_DEFAULTS, type EditorEnv } from '../core/env'
+import { registerCommand } from '../core/registry'
+import { schema } from '../core/schema'
 import { h } from '../ui/dom'
-import { renderTex } from './katex'
+import { type MathOptions, refreshAllMath, renderTex, texToMathML, trackMath, untrackMath } from './katex'
+import { type AutoNumber, equationLabels } from './math-tex'
+
+/** 是否把 ```math 代码块当公式(偏好 PM-07)。 */
+export function mathFenceEnabled(env: EditorEnv): boolean {
+  return env.settings.mathCodeFence ?? EDITOR_OPTION_DEFAULTS.mathCodeFence
+}
+
+const labelCache = new WeakMap<PMNode, { mode: AutoNumber; fence: boolean; labels: Map<string, string> }>()
+
+/** 全文块公式(含 ```math)的「标签 → 编号」,同一版文档只算一次。 */
+function documentLabels(doc: PMNode, mode: AutoNumber, fence: boolean): Map<string, string> {
+  const cached = labelCache.get(doc)
+  if (cached && cached.mode === mode && cached.fence === fence) return cached.labels
+  const texs: string[] = []
+  doc.descendants((node) => {
+    if (node.type === schema.nodes.math_block) texs.push(node.textContent)
+    else if (fence && node.type === schema.nodes.code_block && String(node.attrs.language).toLowerCase() === 'math') texs.push(node.textContent)
+    return !node.isTextblock
+  })
+  const labels = equationLabels(texs, mode)
+  labelCache.set(doc, { mode, fence, labels })
+  return labels
+}
+
+/** 当前偏好下的公式选项。 */
+export function mathOptions(env: EditorEnv, doc: PMNode): MathOptions {
+  const autoNumber = env.settings.mathAutoNumber ?? EDITOR_OPTION_DEFAULTS.mathAutoNumber
+  return {
+    autoNumber,
+    physics: env.settings.mathPhysics ?? EDITOR_OPTION_DEFAULTS.mathPhysics,
+    lineBreak: env.settings.mathLineBreak ?? EDITOR_OPTION_DEFAULTS.mathLineBreak,
+    labels: documentLabels(doc, autoNumber, mathFenceEnabled(env)),
+  }
+}
 
 export class MathBlockView implements NodeView {
   dom: HTMLElement
@@ -15,6 +53,7 @@ export class MathBlockView implements NodeView {
     private node: PMNode,
     private readonly view: EditorView,
     private readonly getPos: () => number | undefined,
+    private readonly env: EditorEnv,
   ) {
     this.preview = h('div', { class: 'tz-math-preview', contenteditable: 'false' })
     this.contentDOM = h('pre', { class: 'tz-math-source', spellcheck: 'false' })
@@ -26,19 +65,24 @@ export class MathBlockView implements NodeView {
       this.view.focus()
       this.view.dispatch(this.view.state.tr.setSelection(TextSelection.create(this.view.state.doc, pos + 1 + this.node.content.size)))
     })
+    trackMath(this)
     this.render()
   }
 
-  private render(): void {
+  private render(force = false): void {
     const tex = this.node.textContent
-    if (tex === this.rendered) return
+    if (tex === this.rendered && !force) return
     this.rendered = tex
     this.dom.classList.toggle('is-empty', tex.trim() === '')
     if (tex.trim() === '') {
       this.preview.textContent = '点击输入公式(LaTeX)'
       return
     }
-    void renderTex(tex, this.preview, true)
+    void renderTex(tex, this.preview, true, mathOptions(this.env, this.view.state.doc))
+  }
+
+  refresh(): void {
+    this.render(true)
   }
 
   update(node: PMNode): boolean {
@@ -51,6 +95,10 @@ export class MathBlockView implements NodeView {
   ignoreMutation(mutation: MutationRecord | { type: 'selection'; target: Node }): boolean {
     return this.preview.contains(mutation.target as Node)
   }
+
+  destroy(): void {
+    untrackMath(this)
+  }
 }
 
 export class MathInlineView implements NodeView {
@@ -61,8 +109,10 @@ export class MathInlineView implements NodeView {
     private node: PMNode,
     private readonly view: EditorView,
     private readonly getPos: () => number | undefined,
+    private readonly env: EditorEnv,
   ) {
     this.dom = h('span', { class: 'tz-math-inline' })
+    trackMath(this)
     this.render()
   }
 
@@ -74,7 +124,11 @@ export class MathInlineView implements NodeView {
       return
     }
     this.dom.classList.remove('is-empty')
-    void renderTex(tex, this.dom, false)
+    void renderTex(tex, this.dom, false, mathOptions(this.env, this.view.state.doc))
+  }
+
+  refresh(): void {
+    this.render()
   }
 
   update(node: PMNode): boolean {
@@ -161,6 +215,43 @@ export class MathInlineView implements NodeView {
   }
 
   destroy(): void {
+    untrackMath(this)
     this.closeEditor()
   }
+}
+
+/** 选区所在的公式:选中的行内 / 块公式,或光标所在的公式块、```math 代码块。 */
+export function selectedTex(state: EditorState): { tex: string; display: boolean } | null {
+  const sel = state.selection
+  if (sel instanceof NodeSelection) {
+    if (sel.node.type === schema.nodes.math_inline) return { tex: sel.node.attrs.tex as string, display: false }
+    if (sel.node.type === schema.nodes.math_block) return { tex: sel.node.textContent, display: true }
+  }
+  const parent = sel.$from.parent
+  if (parent.type === schema.nodes.math_block) return { tex: parent.textContent, display: true }
+  if (parent.type === schema.nodes.code_block && String(parent.attrs.language).toLowerCase() === 'math') return { tex: parent.textContent, display: true }
+  return null
+}
+
+/** 公式相关命令:刷新所有数学公式(对照表 E-24)、复制为 TeX / MathML(C-07,右键菜单入口另接)。 */
+export function mathPlugin(env: EditorEnv): Plugin {
+  const copy = (view: EditorView, kind: 'tex' | 'mathml'): boolean => {
+    const found = selectedTex(view.state)
+    if (!found) {
+      env.actions.toast('光标不在公式里', true)
+      return false
+    }
+    const text = kind === 'tex' ? Promise.resolve(found.tex) : texToMathML(found.tex, found.display, mathOptions(env, view.state.doc))
+    text
+      .then((value) => navigator.clipboard.writeText(value))
+      .then(
+        () => env.actions.toast(kind === 'tex' ? '已复制 Tex 代码' : '已复制 MathML'),
+        (err: unknown) => env.actions.toast(`复制失败:${err instanceof Error ? err.message : String(err)}`, true),
+      )
+    return true
+  }
+  registerCommand({ id: 'math.refresh', label: '刷新所有数学公式', run: () => (refreshAllMath(), true) })
+  registerCommand({ id: 'math.copyTex', label: '复制为 Tex 代码', run: (view) => copy(view, 'tex') })
+  registerCommand({ id: 'math.copyMathML', label: '复制为 MathML', run: (view) => copy(view, 'mathml') })
+  return new Plugin({})
 }

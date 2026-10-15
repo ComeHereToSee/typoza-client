@@ -2,15 +2,18 @@
 import type { MarkType } from 'prosemirror-model'
 import { NodeSelection, Plugin, type EditorState } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
+import { BlockSelection } from '../core/block-selection'
 import { currentBlockKind, markRange, removeLink, setLink } from '../core/commands'
 import type { EditorEnv } from '../core/env'
 import { openHref } from '../core/links'
-import { registerCommand, runCommand } from '../core/registry'
+import { getCommand, registerCommand, runCommand } from '../core/registry'
 import { schema } from '../core/schema'
 import { ICONS, h, svgIcon } from '../ui/dom'
 import { FloatingMenu } from '../ui/menu'
 import { promptInput } from '../ui/prompt'
-import { BLOCK_KINDS, colorItems, turnIntoItems } from './items'
+import { BLOCK_KINDS, colorItems, turnIntoItems, turnMenuItems } from './items'
+
+const isMac = typeof navigator !== 'undefined' && /Mac|iP(hone|[oa]d)/.test(navigator.platform)
 
 const m = schema.marks
 
@@ -43,15 +46,33 @@ export async function editLink(view: EditorView): Promise<void> {
   setLink(href)(view.state, view.dispatch)
 }
 
+/** 焦点不在正文(侧栏、无文档时),且不在输入框里。 */
+function focusOutsideEditor(view: EditorView): boolean {
+  if (view.hasFocus()) return false
+  const active = document.activeElement
+  if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || (active instanceof HTMLElement && active.isContentEditable))) return false
+  return true
+}
+
 export function toolbarPlugin(env: EditorEnv): Plugin {
-  registerCommand({ id: 'format.link', label: '链接', run: (view) => (void editLink(view), true) })
-  const turnMenu = new FloatingMenu({ className: 'tz-turn-menu' })
+  registerCommand({
+    id: 'format.link',
+    label: '链接',
+    run: (view) => {
+      // ⌘K:正文内加链接;焦点不在正文时为快速打开(notion-input.md 六 第 2 行)
+      if (focusOutsideEditor(view) && getCommand('file.quickOpen')) return runCommand(view, 'file.quickOpen')
+      void editLink(view)
+      return true
+    },
+  })
+  const turnMenu = new FloatingMenu({ className: 'tz-turn-menu', search: '转换为…' })
   registerCommand({
     id: 'block.turnIntoMenu',
     label: '转换为…',
     run: (view) => {
+      // 光标所在块或块选中态都可用;不可转换的块只给创建副本 / 移动到 / 复制为 Markdown / 删除(notion-input.md 7.3)
       const c = view.coordsAtPos(view.state.selection.from)
-      turnMenu.open(turnIntoItems(view), c)
+      turnMenu.open(turnMenuItems(view), c)
       return true
     },
   })
@@ -92,6 +113,14 @@ class SelectionToolbar {
     setTimeout(() => this.update(this.view), 0)
   }
   private readonly onOver = (e: MouseEvent) => this.trackHover(e)
+  /** 焦点不在正文时 ⌘K 打开快速打开(原生菜单的 ⌘K 走 format.link 命令,浏览器宿主没有菜单,在这里接) */
+  private readonly onKey = (e: KeyboardEvent) => {
+    const mod = isMac ? e.metaKey : e.ctrlKey
+    if (!mod || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'k' || e.defaultPrevented) return
+    if (!focusOutsideEditor(this.view) || !getCommand('file.quickOpen')) return
+    e.preventDefault()
+    runCommand(this.view, 'file.quickOpen')
+  }
 
   constructor(
     private readonly view: EditorView,
@@ -105,6 +134,7 @@ class SelectionToolbar {
     document.body.append(this.el, this.hover)
     view.dom.addEventListener('mousedown', this.onDown)
     document.addEventListener('mouseup', this.onUp)
+    document.addEventListener('keydown', this.onKey)
     view.dom.addEventListener('mouseover', this.onOver)
   }
 
@@ -169,6 +199,7 @@ class SelectionToolbar {
       view.hasFocus() &&
       !sel.empty &&
       !(sel instanceof NodeSelection) &&
+      !(sel instanceof BlockSelection) &&
       !sel.$from.parent.type.spec.code &&
       !view.composing
     if (!show) {
@@ -230,6 +261,7 @@ class SelectionToolbar {
   destroy(): void {
     this.view.dom.removeEventListener('mousedown', this.onDown)
     document.removeEventListener('mouseup', this.onUp)
+    document.removeEventListener('keydown', this.onKey)
     this.view.dom.removeEventListener('mouseover', this.onOver)
     this.menu.close('api')
     this.el.remove()

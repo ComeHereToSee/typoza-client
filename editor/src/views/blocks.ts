@@ -271,7 +271,19 @@ export class FrontMatterView implements NodeView {
   }
 }
 
-// ---------- 脚注引用:悬停预览、点击跳到定义 ----------
+// ---------- 脚注引用:悬停预览、⌘+点击跳到定义(对照表 X-46) ----------
+
+const isMac = typeof navigator !== 'undefined' && /Mac|iP(hone|[oa]d)/.test(navigator.platform)
+
+/** ⌘(macOS)/ Ctrl(其它平台)+点击。 */
+function modClick(e: MouseEvent): boolean {
+  return isMac ? e.metaKey : e.ctrlKey
+}
+
+/** 脚注未定义时的提示(Typora 原文,{0} 为脚注名、{1} 为脚注标签)。 */
+export function undefinedFootnoteHint(label: string): string {
+  return `请按语法 [^${label}]: www.example.com 定义脚注 ${label}`
+}
 
 export class FootnoteRefView implements NodeView {
   dom: HTMLElement
@@ -280,14 +292,20 @@ export class FootnoteRefView implements NodeView {
   constructor(
     private node: PMNode,
     private readonly view: EditorView,
+    private readonly env: EditorEnv,
   ) {
     this.dom = h('sup', { class: 'tz-footnote-ref' }, `[${node.attrs.label}]`)
     this.dom.addEventListener('mouseenter', () => this.showTip())
     this.dom.addEventListener('mouseleave', () => this.hideTip())
     this.dom.addEventListener('click', (e) => {
+      // 单击只选中脚注号;⌘+点击才跳到定义
+      if (!modClick(e)) return
       e.preventDefault()
       const def = this.findDefinition()
-      if (!def) return
+      if (!def) {
+        this.env.actions.toast(undefinedFootnoteHint(this.node.attrs.label as string), true)
+        return
+      }
       this.view.dispatch(this.view.state.tr.setSelection(TextSelection.create(this.view.state.doc, def.pos + 2)).scrollIntoView())
       this.view.focus()
     })
@@ -305,7 +323,7 @@ export class FootnoteRefView implements NodeView {
 
   private showTip(): void {
     const def = this.findDefinition()
-    const text = def ? def.node.textContent : '未找到脚注定义'
+    const text = def ? def.node.textContent : undefinedFootnoteHint(this.node.attrs.label as string)
     this.tip = h('div', { class: 'tz-popover tz-footnote-tip' }, text)
     document.body.append(this.tip)
     const r = this.dom.getBoundingClientRect()
@@ -341,10 +359,11 @@ export class WikiLinkView implements NodeView {
 
   constructor(node: PMNode, env: EditorEnv) {
     const target = node.attrs.target as string
-    this.dom = h('a', { class: 'tz-wikilink', href: '#', title: `打开「${target}」(⌘ 点击在新标签页打开)` }, node.attrs.alias ?? target)
+    this.dom = h('a', { class: 'tz-wikilink', href: '#', title: `⌘+点击在新标签页打开「${target}」` }, node.attrs.alias ?? target)
     this.dom.addEventListener('click', (e) => {
       e.preventDefault()
-      env.openDocumentLink(target, e.metaKey)
+      // 单击不跳转(便于编辑);⌘+点击在新标签页打开(notion-input.md 4.3、5.1 第 11 行)
+      if (modClick(e)) env.openDocumentLink(target, true)
     })
   }
 

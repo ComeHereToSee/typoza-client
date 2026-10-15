@@ -1,0 +1,78 @@
+/* 块编辑体系的界面:多块选择框选、菜单搜索框与底部字数、表格行列选择、表格行列拖动手柄、公式编号开关。 */
+
+/* 框选 */
+.tz-marquee {
+  position: fixed;
+  z-index: 90;
+  pointer-events: none;
+  border: 1px solid var(--tz-accent);
+  background: var(--tz-accent-soft);
+  border-radius: 2px;
+}
+
+/* 菜单搜索框与底部说明 */
+.tz-menu-search {
+  display: block;
+  box-sizing: border-box;
+  width: calc(100% - 16px);
+  margin: 2px 8px 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--tz-border);
+  border-radius: 5px;
+  background: var(--tz-bg);
+  color: var(--tz-text);
+  font-size: 13px;
+  outline: none;
+}
+.tz-menu-search:focus { border-color: var(--tz-accent); }
+.tz-menu-footer {
+  margin-top: 4px;
+  padding: 6px 14px 2px;
+  border-top: 1px solid var(--tz-border);
+  font-size: 12px;
+  color: var(--tz-text-muted);
+}
+.tz-menu-footer[hidden] { display: none; }
+
+/* 表格行列选择 */
+.tz-table-size { display: flex; flex-direction: column; gap: 8px; }
+.tz-table-size.is-centered { left: 50%; top: 24%; transform: translateX(-50%); }
+.tz-table-size-grid { display: grid; grid-template-columns: repeat(6, 18px); gap: 3px; }
+.tz-table-size-cell { width: 18px; height: 18px; border: 1px solid var(--tz-border); border-radius: 2px; cursor: pointer; }
+.tz-table-size-cell.is-on { background: var(--tz-accent-soft); border-color: var(--tz-accent); }
+.tz-table-size-label { color: var(--tz-text-muted); font-size: 12px; }
+.tz-table-size-fields { display: flex; align-items: center; gap: 8px; }
+.tz-table-size-input {
+  width: 52px;
+  padding: 3px 6px;
+  border: 1px solid var(--tz-border);
+  border-radius: 4px;
+  background: var(--tz-bg);
+  color: var(--tz-text);
+}
+
+/* 表格行列拖动:行左边框、列上边框的手柄与落点指示 */
+.tz-table-grip {
+  position: absolute;
+  z-index: 14;
+  border-radius: 3px;
+  background: var(--tz-border);
+  cursor: grab;
+  opacity: 0.85;
+}
+.tz-table-grip:hover, .tz-table-grip.is-dragging { background: var(--tz-accent); }
+.tz-table-grip[hidden] { display: none; }
+.tz-table-grip-row { width: 6px; }
+.tz-table-grip-col { height: 6px; }
+.tz-table-drop {
+  position: absolute;
+  z-index: 14;
+  background: var(--tz-accent);
+  pointer-events: none;
+}
+.tz-table-drop[hidden] { display: none; }
+
+/* 公式自动编号「不编号」:隐藏 KaTeX 给 equation / align 等环境自动加的编号(手写的 \tag 照常显示)。
+   KaTeX 样式按需后加载,选择器要比它的 .katex .eqn-num:before 更具体 */
+.tz-math-nonumber .katex .eqn-num::before,
+.tz-math-nonumber .katex .mml-eqn-num::before { content: none; counter-increment: none; }

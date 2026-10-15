@@ -2,6 +2,7 @@
 import type { MarkType } from 'prosemirror-model'
 import { type Command, NodeSelection, Selection, TextSelection } from 'prosemirror-state'
 import { addRowAfter, isInTable } from 'prosemirror-tables'
+import { BlockSelection, exitBlockSelection, extendBlockSelection, siblingBlock } from './block-selection'
 import { selectedBlock } from './blocks'
 import { markRange, setColor, toggleCheckOrFold } from './commands'
 import { schema } from './schema'
@@ -83,9 +84,15 @@ export const jumpToSelection: Command = (state, dispatch) => {
 
 // ---------- 块选中态(Esc 之后) ----------
 
-/** 块选中时 ↑/↓ 选中相邻块。 */
+/** 块选中时 ↑/↓ 选中相邻块;多块选中时从移动端那一块换选。 */
 export function selectSiblingBlock(dir: -1 | 1): Command {
   return (state, dispatch) => {
+    const multi = state.selection
+    if (multi instanceof BlockSelection) {
+      const next = siblingBlock(state.doc, multi.headBlock, dir) ?? multi.headBlock
+      if (dispatch) dispatch(state.tr.setSelection(NodeSelection.create(state.doc, next)).scrollIntoView())
+      return true
+    }
     const sel = state.selection
     if (!(sel instanceof NodeSelection) || !sel.node.isBlock) return false
     const $pos = sel.$from
@@ -101,12 +108,27 @@ export function selectSiblingBlock(dir: -1 | 1): Command {
   }
 }
 
-/** 块选中时 ↩:光标进入该块末尾编辑。 */
+/** 块选中时 ↩:光标进入该块末尾编辑;多块选中时进入移动端那一块。 */
 export const editSelectedBlock: Command = (state, dispatch) => {
   const sel = state.selection
+  if (sel instanceof BlockSelection) {
+    const exit = exitBlockSelection(state)
+    if (exit && dispatch) dispatch(state.tr.setSelection(exit).scrollIntoView())
+    return true
+  }
   if (!(sel instanceof NodeSelection) || !sel.node.isBlock || sel.node.isAtom) return false
   if (dispatch) dispatch(state.tr.setSelection(Selection.near(state.doc.resolve(sel.to - 1), -1)))
   return true
+}
+
+/** 块选中时 ⇧↑ / ⇧↓:扩选(notion-input.md 5.1 第 45 行)。 */
+export function extendBlock(dir: -1 | 1): Command {
+  return (state, dispatch) => {
+    const next = extendBlockSelection(state, dir)
+    if (!next) return false
+    if (dispatch && !next.eq(state.selection)) dispatch(state.tr.setSelection(next).scrollIntoView())
+    return true
+  }
 }
 
 /** 块选中且是图片 / 媒体时按空格:交给应用打开灯箱(由 isImageSelected 判断)。 */
@@ -123,6 +145,7 @@ export const modifyCurrentBlock: Command = (state, dispatch) => {
 /** 选中当前块(Esc)。已是块选中态时取消选择,把光标放回块末尾。 */
 export const escapeSelect: Command = (state, dispatch) => {
   const sel = state.selection
+  if (sel instanceof BlockSelection) return editSelectedBlock(state, dispatch)
   if (sel instanceof NodeSelection && sel.node.isBlock) return editSelectedBlock(state, dispatch)
   const block = selectedBlock(sel)
   if (!block) return false

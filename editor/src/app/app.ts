@@ -4,7 +4,8 @@ import { TextSelection } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
 import { collectHeadings, type HeadingItem } from '../core/blocks'
 import { createEditorState, createEditorView, sliceToMarkdown } from '../core/editor'
-import { type DocumentRef, type EditorEnv, DEFAULT_EDITOR_SETTINGS, type ImportFile } from '../core/env'
+import { selectionText } from '../core/block-selection'
+import { type DocumentRef, type EditorEnv, DEFAULT_EDITOR_SETTINGS, type ImportFile, pickEditorOptions } from '../core/env'
 import { detectEmbed } from '../core/embed'
 import { scrollToAnchor } from '../core/links'
 import { parseMarkdown } from '../core/markdown/parse'
@@ -16,8 +17,10 @@ import type { ExportFormat, Host } from '../host/types'
 import { h } from '../ui/dom'
 import { closeLightbox, isLightboxOpen } from '../ui/lightbox'
 import { promptInput, validateUrl } from '../ui/prompt'
-import { resetMacros } from '../views/katex'
+import { refreshCodeBlocks } from '../views/codeblock'
+import { refreshAllMath, resetMacros } from '../views/katex'
 import { importFile } from './assets'
+import { appendMarkdown, createDocumentIn, documentRefs, pickWikiTarget } from './doc-links'
 import { DocumentSession, frontMatterInfo, updateFrontMatterText } from './document'
 import { buildExportHtml } from './exporter'
 import { countWords, showHistory, showSettings, showWordCount } from './panels'
@@ -76,6 +79,9 @@ export class App {
         listDocuments: () => this.listDocuments(),
         newDocument: () => void this.runAppCommand('file.newWindow'),
         importFiles: (view, files, at) => this.importFiles(view, files, at),
+        createDocument: (name, content) => this.createLinkedDocument(name, content ?? ''),
+        appendToDocument: (path, markdown) => appendMarkdown(this.host, path, markdown).then(() => this.sidebar.refresh()),
+        toast: (message, error) => this.toast(message, error),
       },
       openDocumentLink: (target, newWindow) => void this.openLink(target, newWindow),
     }
@@ -139,11 +145,25 @@ export class App {
       codeLineWrap: s.codeLineWrap,
       spellcheck: s.spellcheck,
       keybindings: s.keybindings,
+      // 代码缩进、公式与图表选项(字段由偏好页提供,没有时用默认值)
+      ...pickEditorOptions(s),
     })
   }
 
   async updateSettings(patch: Partial<AppSettings>): Promise<void> {
-    const rebuild = ['smartPunctuation', 'keybindings', 'inlineMath', 'codeLineNumbers', 'codeLineWrap'].some((k) => k in patch)
+    const rebuild = [
+      'smartPunctuation',
+      'keybindings',
+      'inlineMath',
+      'codeLineNumbers',
+      'codeLineWrap',
+      'codeIndentWidth',
+      'mathCodeFence',
+      'mathAutoNumber',
+      'mathPhysics',
+      'mathLineBreak',
+      'diagrams',
+    ].some((k) => k in patch)
     Object.assign(this.settings, patch)
     this.syncEditorSettings()
     await this.host.setSettings(patch as Record<string, unknown>)
@@ -154,6 +174,9 @@ export class App {
       const { doc, selection } = this.view.state
       const state = createEditorState(doc, this.env)
       this.view.updateState(state.apply(state.tr.setSelection(TextSelection.create(state.doc, Math.min(selection.from, doc.content.size)))))
+      // 节点视图不随状态重建,已显示的代码块、公式按新设置重新渲染
+      refreshCodeBlocks()
+      refreshAllMath()
     }
     this.renderStatus()
   }
@@ -450,8 +473,9 @@ export class App {
     if (!this.view || !this.settings.showStatusBar) return
     const text = this.source ? this.source.text : this.view.state.doc.textBetween(0, this.view.state.doc.content.size, '\n\n', ' ')
     const stats = countWords(text)
-    const { from, to, empty } = this.view.state.selection
-    const sel = !empty && !this.source ? countWords(this.view.state.doc.textBetween(from, to, '\n\n', ' ')) : null
+    // 有选区或选中了块(含多块)时显示所选部分的字数
+    const selected = this.source ? null : selectionText(this.view.state)
+    const sel = selected === null ? null : countWords(selected)
     const words = h('button', { type: 'button', class: 'tz-status-btn', title: '字数统计' }, sel ? `已选 ${sel.words} 字 / 共 ${stats.words} 字` : `${stats.words} 字`)
     words.addEventListener('click', () => runCommand(this.view, 'view.wordCount'))
     const sidebarBtn = h('button', { type: 'button', class: 'tz-status-btn', title: '显示 / 隐藏侧栏(⌃⌘S)' }, '☰')
@@ -571,12 +595,25 @@ export class App {
     const files = (await this.host.listMarkdown(root)).filter((p) => p !== this.session.path)
     const recent = new Map(this.recent.map((p, i) => [p, i]))
     files.sort((a, b) => (recent.get(a) ?? Infinity) - (recent.get(b) ?? Infinity))
-    return files.map((path) => ({
-      path,
-      title: basename(path).replace(/\.(md|markdown)$/i, ''),
-      dir: relativePath(root, dirname(path)) || '.',
-      href: this.docHref(path, root),
-    }))
+    // 标题取目标文档首个一级标题,没有则用文件名(notion-input.md 4.3)
+    return documentRefs(this.host, files, root, this.session.path ? dirname(this.session.path) : root)
+  }
+
+  /** [[ 的「+ 新建」与 /page:在当前文档所在文件夹(未保存时为根文件夹)新建文档。 */
+  private async createLinkedDocument(name: string, content: string): Promise<DocumentRef | null> {
+    const dir = this.session.path ? dirname(this.session.path) : this.sidebar.rootFolder
+    if (!dir) {
+      this.toast('先保存当前文档或打开文件夹,才能新建文档', true)
+      return null
+    }
+    try {
+      const ref = await createDocumentIn(this.host, dir, name, content, dir)
+      this.sidebar.refresh()
+      return ref
+    } catch (err) {
+      this.toast(`新建文档失败:${err instanceof Error ? err.message : String(err)}`, true)
+      return null
+    }
   }
 
   private async insertDocLink(view: EditorView): Promise<void> {
@@ -609,11 +646,11 @@ export class App {
     if (/\.(md|markdown|mdown|mkd|txt)$/i.test(pathPart)) {
       path = resolveLocalPath(pathPart, this.env.ctx)
     } else {
-      // wikilink:[[笔记]] → 根文件夹下名为「笔记.md」的文件
+      // wikilink:[[笔记]] → 根文件夹下名为「笔记.md」的文件,同名时优先同文件夹
       const root = this.sidebar.rootFolder ?? (this.session.path ? dirname(this.session.path) : null)
       if (root) {
         const all = await this.host.listMarkdown(root)
-        path = all.find((p) => basename(p).replace(/\.(md|markdown)$/i, '') === pathPart) ?? null
+        path = pickWikiTarget(all, pathPart, this.session.path ? dirname(this.session.path) : null)
       }
     }
     if (!path) {
@@ -795,6 +832,9 @@ export class App {
     })
     cmd('block.toDocument', '转为新文档', () => void this.blockToDocument())
     cmd('insert.image', '插入图片…', () => void this.insertLocalMedia(this.view, 'image'))
+    // 斜杠 /icon、/cover(对照表 Z-11)
+    cmd('page.icon', '页面图标', () => void this.pickIcon())
+    cmd('page.cover', '页面封面', () => void this.pickCover())
   }
 
   /** 其它模块(如云同步)往偏好设置里加的页签。 */

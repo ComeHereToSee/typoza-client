@@ -184,6 +184,12 @@ function inlineRules(options: InputRuleOptions): InputRule[] {
       const from = end - tex.length - 3
       return state.tr.replaceWith(from, end, n.math_inline.create({ tex }))
     }),
+    // 敲完 <网址> 的 > 即成链接,保存仍写 <网址>(notion-input.md 2.2 第 10 行)
+    new InputRule(/<(https?:\/\/[^\s<>]+)>$/, (state, match, start, end) => {
+      const url = match[1]
+      if (state.doc.resolve(start).parent.type.spec.code) return null
+      return state.tr.replaceWith(start, end, schema.text(url, [m.link.create({ href: url })]))
+    }),
     // 敲完网址再敲空格,自动变成链接(Notion)
     new InputRule(/(?:^|\s)(https?:\/\/[^\s]+[^\s.,;:!?'")\]])\s$/, (state, match, _start, end) => {
       const url = match[1]

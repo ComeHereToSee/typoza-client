@@ -14,6 +14,43 @@ export interface EditorSettings {
   spellcheck: boolean
   /** 自定义快捷键:键 → 命令 ID */
   keybindings: Record<string, string>
+  // 以下为偏好设置「Markdown」页的代码 / 公式 / 图表选项(对照表 PM-07、PM-12、PM-18、PM-20~PM-22),
+  // 偏好页还没提供时取 EDITOR_OPTION_DEFAULTS
+  /** 代码块缩进宽度(空格数) */
+  codeIndentWidth?: number
+  /** 把 ```math 代码块显示为公式 */
+  mathCodeFence?: boolean
+  /** 公式自动编号:不编号 / AMS 规则 / 全部编号 */
+  mathAutoNumber?: 'none' | 'ams' | 'all'
+  /** 启用 physics 宏 */
+  mathPhysics?: boolean
+  /** 块公式里 \\ 与 \newline 换行 */
+  mathLineBreak?: boolean
+  /** 渲染 mermaid / sequence / flow 图表 */
+  diagrams?: boolean
+}
+
+/** 可选编辑器选项的默认值。 */
+export const EDITOR_OPTION_DEFAULTS = {
+  codeIndentWidth: 2,
+  mathCodeFence: true,
+  mathAutoNumber: 'none',
+  mathPhysics: false,
+  mathLineBreak: true,
+  diagrams: true,
+} as const
+
+/** 从应用设置里挑出可选编辑器选项(字段由偏好页提供;类型不符的忽略,按默认值处理)。 */
+export function pickEditorOptions(source: object): Partial<EditorSettings> {
+  const s = source as Record<string, unknown>
+  const out: Partial<EditorSettings> = {}
+  if (typeof s.codeIndentWidth === 'number' && s.codeIndentWidth >= 1 && s.codeIndentWidth <= 8) out.codeIndentWidth = Math.round(s.codeIndentWidth)
+  if (typeof s.mathCodeFence === 'boolean') out.mathCodeFence = s.mathCodeFence
+  if (s.mathAutoNumber === 'none' || s.mathAutoNumber === 'ams' || s.mathAutoNumber === 'all') out.mathAutoNumber = s.mathAutoNumber
+  if (typeof s.mathPhysics === 'boolean') out.mathPhysics = s.mathPhysics
+  if (typeof s.mathLineBreak === 'boolean') out.mathLineBreak = s.mathLineBreak
+  if (typeof s.diagrams === 'boolean') out.diagrams = s.diagrams
+  return out
 }
 
 export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
@@ -40,12 +77,20 @@ export interface EditorActions {
   newDocument(): void
   /** 粘贴或拖入的文件:按类型(图片 / 视频 / 音频 / PDF / 其它)和图片设置拷进资源目录后插入 */
   importFiles(view: EditorView, files: ImportFile[], at?: number): Promise<void>
+  /** 在当前文档所在文件夹新建「name.md」(重名加序号)并写入 content;没有可用文件夹时提示并返回 null */
+  createDocument(name: string, content?: string): Promise<DocumentRef | null>
+  /** 把一段 Markdown 追加到另一篇文档末尾(块「移动到…」、拖块到侧栏文档) */
+  appendToDocument(path: string, markdown: string): Promise<void>
+  /** 状态提示 */
+  toast(message: string, error?: boolean): void
 }
 
 export interface DocumentRef {
   path: string
-  /** 文件名去掉扩展名 */
+  /** 文档标题:首个一级标题,没有则为文件名 */
   title: string
+  /** 文件名去掉扩展名 */
+  name: string
   /** 所在文件夹(相对根文件夹,菜单提示用) */
   dir: string
   href: string
