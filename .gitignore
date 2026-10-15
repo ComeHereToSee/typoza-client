@@ -1,0 +1,7 @@
+.DS_Store
+localClaude/
+CLAUDE.local.md
+ci-out/
+app/.build/
+app/.swiftpm/
+helper/dist/
