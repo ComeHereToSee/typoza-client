@@ -1,0 +1,69 @@
+/* 文件、侧栏、快速打开、历史版本、链接浮层(gaps 第 4~7、10、28~34、43 项新增的界面) */
+
+/* ---------- 侧栏:最近使用的目录、提示条、文档列表 ---------- */
+.tz-side-subtitle { padding: 10px 8px 4px; font-size: 11px; color: var(--tz-text-muted); font-weight: 500; }
+.tz-side-notice { margin: 4px 2px 8px; padding: 6px 8px; border-radius: 5px; background: var(--tz-accent-soft); font-size: 12px; color: var(--tz-text); }
+.tz-folder-item { display: flex; align-items: center; gap: 4px; padding: 5px 8px; border-radius: 5px; cursor: pointer; font-size: 13px; }
+.tz-folder-item:hover { background: var(--tz-bg-hover); }
+.tz-folder-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tz-folder-btn { border: 0; background: none; color: var(--tz-text-faint); font-size: 11px; padding: 1px 4px; border-radius: 4px; cursor: pointer; }
+.tz-folder-btn:hover, .tz-folder-btn.is-on { color: var(--tz-accent); background: var(--tz-accent-soft); }
+.tz-list-head { display: flex; justify-content: flex-end; padding: 2px 2px 6px; }
+.tz-list-sort { border: 0; background: none; color: var(--tz-text-muted); font-size: 12px; padding: 2px 6px; border-radius: 4px; cursor: pointer; }
+.tz-list-sort:hover { background: var(--tz-bg-hover); }
+.tz-doc-group { padding: 8px 8px 2px; font-size: 11px; color: var(--tz-text-muted); font-weight: 500; }
+.tz-doc-excerpt { font-size: 12px; color: var(--tz-text-muted); margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tz-doc-excerpt:empty { display: none; }
+.tz-tree-item.is-drop-target, .tz-tree-root.is-drop-target { background: var(--tz-accent-soft); outline: 1px dashed var(--tz-accent); }
+.tz-tree-item.is-revealed, .tz-doc-item.is-revealed { background: var(--tz-accent-soft); transition: background 0.3s; }
+
+/* ---------- 大纲:折叠、全部折叠 / 展开、大纲窗口 ---------- */
+.tz-outline-head { display: flex; justify-content: flex-end; gap: 4px; padding: 2px 2px 6px; }
+.tz-outline-btn { border: 0; background: none; color: var(--tz-text-muted); font-size: 12px; padding: 2px 6px; border-radius: 4px; cursor: pointer; }
+.tz-outline-btn:hover { background: var(--tz-bg-hover); }
+.tz-outline-twisty { display: inline-block; width: 14px; color: var(--tz-text-faint); font-size: 10px; }
+.tz-outline-popover { position: fixed; top: 48px; right: 24px; width: 280px; max-height: 70vh; overflow-y: auto; padding: 6px; }
+
+/* ---------- 全局搜索 ---------- */
+.tz-search-bar { display: flex; flex-direction: column; gap: 4px; }
+.tz-search-options { display: flex; gap: 2px; justify-content: flex-end; }
+.tz-search-more { padding: 8px; text-align: center; font-size: 12px; color: var(--tz-text-muted); }
+.tz-hit-file { cursor: pointer; }
+.tz-hit-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tz-hit-name mark { background: #fbf3db; color: inherit; border-radius: 2px; }
+.tz-hit-line { cursor: pointer; border-radius: 3px; padding: 1px 2px; }
+.tz-hit-line:hover { background: var(--tz-bg-hover); color: var(--tz-text); }
+
+/* ---------- 快速打开 ---------- */
+.tz-qo-title { color: var(--tz-text-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
+
+/* ---------- 历史版本:差异预览 ---------- */
+.tz-history-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.tz-history-view .tz-history-preview { flex: 1; min-height: 0; overflow: auto; }
+.tz-diff-summary { font-size: 12px; color: var(--tz-text-muted); padding: 0 0 6px; }
+.tz-diff-lines, .tz-diff-plain { font-family: var(--tz-font-mono); font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; margin: 0; }
+.tz-diff-line { min-height: 1.5em; padding: 0 6px; }
+.tz-diff-line.is-added { background: rgba(68, 131, 97, 0.16); }
+.tz-diff-line.is-added::before { content: '+ '; color: #448361; }
+.tz-diff-line.is-removed { background: rgba(212, 76, 71, 0.13); text-decoration: line-through; text-decoration-color: rgba(212, 76, 71, 0.5); }
+.tz-diff-line.is-removed::before { content: '- '; color: #d44c47; }
+.tz-history-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.tz-history-actions .tz-btn-primary { align-self: auto; }
+.tz-history-sub { padding-left: 12px; }
+.tz-history-item.is-deleted { color: var(--tz-text-muted); }
+.tz-btn { border: 1px solid var(--tz-border); background: var(--tz-bg); color: var(--tz-text); border-radius: 6px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
+.tz-btn:hover { background: var(--tz-bg-hover); }
+.tz-btn[disabled] { opacity: 0.4; cursor: default; }
+
+/* ---------- 属性 / 显示简介 ---------- */
+.tz-file-info { border-collapse: collapse; margin: 12px 18px 18px; font-size: 13px; }
+.tz-file-info th { text-align: left; color: var(--tz-text-muted); font-weight: 400; padding: 5px 16px 5px 0; white-space: nowrap; vertical-align: top; }
+.tz-file-info td { padding: 5px 0; word-break: break-all; }
+
+/* ---------- 链接:单击浮层、悬停预览 ---------- */
+.tz-link-card { display: flex; align-items: center; gap: 4px; padding: 4px 6px; max-width: 460px; }
+.tz-link-preview { padding: 8px 10px; max-width: 360px; font-size: 12px; pointer-events: none; }
+.tz-link-preview .tz-link-url { padding: 0; max-width: 340px; display: block; }
+.tz-link-preview-title { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+.tz-link-preview-excerpt { color: var(--tz-text-muted); margin-bottom: 4px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.tz-sidebar:focus { outline: none; }

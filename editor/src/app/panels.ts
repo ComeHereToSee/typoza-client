@@ -1,6 +1,5 @@
-// 弹出面板:偏好设置、字数统计、历史版本。
+// 弹出面板:偏好设置、字数统计(历史版本面板见 historypanel.ts)。
 import { h } from '../ui/dom'
-import type { HistoryEntry, Host } from '../host/types'
 import { BUILTIN_THEMES, type AppSettings } from './settings'
 
 export function modal(title: string, body: HTMLElement, onClose?: () => void): { root: HTMLElement; close: () => void } {
@@ -227,49 +226,4 @@ export function showWordCount(stats: WordStats, selection: WordStats | null): vo
     ),
   )
   modal('字数统计', table)
-}
-
-// ---------- 历史版本 ----------
-
-export function showHistory(host: Host, path: string, entries: HistoryEntry[], restore: (text: string) => void, extraEntries: { label: string; meta?: string; load: () => Promise<string> }[] = []): void {
-  const preview = h('pre', { class: 'tz-history-preview' }, '选择左侧的版本查看内容')
-  const restoreBtn = h('button', { type: 'button', class: 'tz-btn-primary', disabled: true }, '恢复这个版本')
-  let current: string | null = null
-  const list = h('div', { class: 'tz-history-list' })
-  const select = async (el: HTMLElement, load: () => Promise<string>) => {
-    for (const x of Array.from(list.children)) x.classList.remove('is-active')
-    el.classList.add('is-active')
-    preview.textContent = '加载中…'
-    try {
-      current = await load()
-      preview.textContent = current
-      restoreBtn.disabled = false
-    } catch (err) {
-      preview.textContent = `读取失败:${err instanceof Error ? err.message : String(err)}`
-      restoreBtn.disabled = true
-    }
-  }
-  // PRD 3.13:同步文件夹里的文件分「本机」「云端」两栏
-  if (extraEntries.length) list.append(h('div', { class: 'tz-history-group' }, '本机'))
-  for (const e of entries) {
-    const el = h('div', { class: 'tz-history-item' }, h('div', null, new Date(e.time).toLocaleString('zh-CN', { hour12: false })), h('div', { class: 'tz-history-meta' }, `${e.source === 'cloud' ? '云端' : '本机'} · ${(e.size / 1024).toFixed(1)} KB`))
-    el.addEventListener('click', () => void select(el, () => host.historyRead(path, e.id)))
-    list.append(el)
-  }
-  if (extraEntries.length) {
-    if (entries.length === 0) list.append(h('div', { class: 'tz-side-empty' }, '本机还没有历史版本'))
-    list.append(h('div', { class: 'tz-history-group' }, '云端'))
-  }
-  for (const x of extraEntries) {
-    const el = h('div', { class: 'tz-history-item' }, h('div', null, x.label), x.meta ? h('div', { class: 'tz-history-meta' }, x.meta) : null)
-    el.addEventListener('click', () => void select(el, x.load))
-    list.append(el)
-  }
-  if (list.childElementCount === 0) list.append(h('div', { class: 'tz-side-empty' }, '还没有历史版本(每次保存都会留一份)'))
-  const { close } = modal('浏览所有版本', h('div', { class: 'tz-history' }, list, h('div', { class: 'tz-history-right' }, preview, restoreBtn)))
-  restoreBtn.addEventListener('click', () => {
-    if (current === null) return
-    restore(current)
-    close()
-  })
 }

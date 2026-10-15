@@ -1,4 +1,6 @@
-// 快速打开(⌘P / ⇧⌘O):在当前文件夹的 Markdown 文件里模糊查找,↵ 打开,⌘↵ 在新标签页打开。
+// 快速打开(⌘P / ⇧⌘O,PRD 3.9):按文件名与首个标题模糊查找当前根文件夹与最近文件;↩ 当前标签打开,⌘↩ 新标签打开。
+import type { OpenWhere } from '../core/env'
+import { displayName } from '../core/filetypes'
 import { basename } from '../core/paths'
 import { h } from '../ui/dom'
 
@@ -21,51 +23,66 @@ export function fuzzyScore(query: string, target: string): number {
   return score - Math.min(10, t.length / 20)
 }
 
+/** 一个文件的得分:文件路径与首个标题取高者;都不匹配返回 -1。 */
+export function quickOpenScore(query: string, relPath: string, title: string | null): number {
+  const byPath = fuzzyScore(query, relPath)
+  // 标题不含路径,「命中文件名」的加分对它恒成立,略降一点,同分时文件名优先
+  const byTitle = title ? fuzzyScore(query, title) - 1 : -1
+  return Math.max(byPath, byTitle)
+}
+
 export interface QuickOpenOptions {
   root: string | null
   files: string[]
   recent: string[]
-  open(path: string, newWindow: boolean): void
+  /** 各文件的首个标题(异步取,取到后按标题也能匹配) */
+  titles?(paths: string[]): Promise<(string | null)[]>
+  open(path: string, where: OpenWhere): void
 }
+
+const MAX_TITLE_LOOKUP = 3000
 
 export function showQuickOpen(options: QuickOpenOptions): void {
   document.querySelector('.tz-quick-open')?.remove()
-  const input = h('input', { class: 'tz-qo-input', placeholder: '输入文件名查找(↵ 打开,⌘↵ 新标签页)', spellcheck: 'false' })
+  const input = h('input', { class: 'tz-qo-input', placeholder: '输入文件名或标题查找(↩ 打开,⌘↩ 在新标签页打开)', spellcheck: 'false' })
   const list = h('div', { class: 'tz-qo-list' })
   const box = h('div', { class: 'tz-quick-open', role: 'dialog' }, h('div', { class: 'tz-qo-panel' }, input, list))
+  const pool = [...new Set([...options.recent, ...options.files])]
+  const titles = new Map<string, string>()
   let items: string[] = []
   let index = 0
   const rel = (p: string) => (options.root && p.startsWith(`${options.root}/`) ? p.slice(options.root.length + 1) : p)
   const render = () => {
     const q = input.value.trim()
-    const pool = q ? [...new Set([...options.recent, ...options.files])] : [...new Set([...options.recent, ...options.files])].slice(0, 50)
     items = q
       ? pool
-          .map((p) => ({ p, s: fuzzyScore(q, rel(p)) }))
+          .map((p) => ({ p, s: quickOpenScore(q, rel(p), titles.get(p) ?? null) }))
           .filter((x) => x.s >= 0)
           .sort((a, b) => b.s - a.s)
           .slice(0, 50)
           .map((x) => x.p)
-      : pool
+      : pool.slice(0, 50)
     index = Math.min(index, Math.max(0, items.length - 1))
     list.replaceChildren(
       ...items.map((p, i) => {
+        const title = titles.get(p)
         const row = h(
           'div',
-          { class: `tz-qo-item${i === index ? ' is-selected' : ''}` },
-          h('span', { class: 'tz-qo-name' }, basename(p)),
+          { class: `tz-qo-item${i === index ? ' is-selected' : ''}`, 'data-path': p },
+          h('span', { class: 'tz-qo-name' }, displayName(p) || basename(p)),
+          title && title !== displayName(p) ? h('span', { class: 'tz-qo-title' }, title) : null,
           h('span', { class: 'tz-qo-path' }, rel(p)),
           options.recent.includes(p) ? h('span', { class: 'tz-qo-tag' }, '最近') : null,
         )
         row.addEventListener('mousedown', (e) => {
           e.preventDefault()
           close()
-          options.open(p, e.metaKey)
+          options.open(p, e.metaKey || e.ctrlKey ? 'tab' : 'current')
         })
         return row
       }),
     )
-    if (items.length === 0) list.append(h('div', { class: 'tz-menu-empty' }, '没有匹配的文件'))
+    if (items.length === 0) list.append(h('div', { class: 'tz-menu-empty' }, '没有找到对应的内容'))
     list.querySelector('.is-selected')?.scrollIntoView({ block: 'nearest' })
   }
   const close = () => box.remove()
@@ -79,9 +96,10 @@ export function showQuickOpen(options: QuickOpenOptions): void {
     else if (e.key === 'ArrowUp') index = Math.max(0, index - 1)
     else if (e.key === 'Escape') return close()
     else if (e.key === 'Enter') {
+      e.preventDefault()
       const p = items[index]
       close()
-      if (p) options.open(p, e.metaKey)
+      if (p) options.open(p, e.metaKey || e.ctrlKey ? 'tab' : 'current')
       return
     } else return
     e.preventDefault()
@@ -93,4 +111,19 @@ export function showQuickOpen(options: QuickOpenOptions): void {
   document.body.append(box)
   render()
   input.focus()
+  if (options.titles && pool.length) {
+    const wanted = pool.slice(0, MAX_TITLE_LOOKUP)
+    options.titles(wanted).then(
+      (found) => {
+        found.forEach((t, i) => {
+          if (t) titles.set(wanted[i], t)
+        })
+        if (box.isConnected) render()
+      },
+      (err: unknown) => {
+        // 标题只用来多一种匹配方式;取不到时按文件名照常可用,把原因留在列表末尾
+        if (box.isConnected) list.append(h('div', { class: 'tz-menu-empty' }, `读取标题失败:${err instanceof Error ? err.message : String(err)}`))
+      },
+    )
+  }
 }

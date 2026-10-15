@@ -66,9 +66,15 @@ export interface EditorEnv {
   ctx: DocContext
   settings: EditorSettings
   actions: EditorActions
-  /** 打开文档内链接 / wikilink 指向的另一篇文档 */
-  openDocumentLink(target: string, newWindow: boolean): void
+  /**
+   * 打开文档内链接:`#标题` 文内跳转、本地文档、其它本机文件、wikilink。
+   * where:current 当前标签,tab 新标签(⌘+点击),window 新窗口(⌥⇧+点击);传布尔时 true 视同 tab。
+   */
+  openDocumentLink(target: string, where: OpenWhere | boolean): void
 }
+
+/** 打开文档的位置:当前标签 / 同一窗口组的新标签 / 新窗口(PRD 3.1、notion 5.1 第 10、11 行) */
+export type OpenWhere = 'current' | 'tab' | 'window'
 
 /** 文档里写的地址 → 网页可加载地址。本机文件走宿主的 typoza://local/。 */
 export function resourceUrl(env: EditorEnv, src: string): string {

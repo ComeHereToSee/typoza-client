@@ -37,14 +37,19 @@ enum MainMenu {
 
     static var sep: NSMenuItem { .separator() }
 
-    static func build(recentMenu: NSMenu, windowMenu: NSMenu, helpMenu: NSMenu) -> NSMenu {
+    static func build(recentMenu: NSMenu, recentFoldersMenu: NSMenu, servicesMenu: NSMenu, windowMenu: NSMenu, helpMenu: NSMenu) -> NSMenu {
         let main = NSMenu(title: "主菜单")
 
+        let services = NSMenuItem(title: "服务", action: nil, keyEquivalent: "")
+        services.submenu = servicesMenu
         let appMenu = submenu("Typoza", [
             std("关于 Typoza", #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
+            cmd("检查更新…", "native.checkUpdates"),
             sep,
             cmd("偏好设置…", "app.preferences", ","),
             cmd("云同步…", "app.syncPreferences"),
+            sep,
+            services,
             sep,
             std("隐藏 Typoza", #selector(NSApplication.hide(_:)), "h"),
             std("隐藏其他", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
@@ -53,8 +58,10 @@ enum MainMenu {
             std("退出 Typoza", #selector(NSApplication.terminate(_:)), "q"),
         ])
 
-        let recent = NSMenuItem(title: "打开最近使用", action: nil, keyEquivalent: "")
+        let recent = NSMenuItem(title: "打开最近文件", action: nil, keyEquivalent: "")
         recent.submenu = recentMenu
+        let recentFolders = NSMenuItem(title: "最近使用的目录", action: nil, keyEquivalent: "")
+        recentFolders.submenu = recentFoldersMenu
         let exportMenu = submenu("导出", [
             cmd("PDF", "file.export.pdf"),
             cmd("HTML", "file.export.html"),
@@ -80,17 +87,31 @@ enum MainMenu {
             cmd("打开文件夹…", "file.openFolder"),
             cmd("快速打开…", "file.quickOpen", "p"),
             recent,
+            recentFolders,
             cmd("重新打开关闭的文件", "native.reopenClosed", "t", [.command, .shift]),
+            sep,
+            cmd("后退", "nav.back", "["),
+            cmd("前进", "nav.forward", "]"),
             sep,
             cmd("保存", "file.save", "s"),
             cmd("另存为…", "file.saveAs", "s", [.command, .option, .shift]),
             cmd("全部保存", "native.saveAll", "s", [.command, .option]),
+            cmd("创建副本", "file.duplicate"),
+            cmd("重命名…", "file.rename"),
+            cmd("移动到…", "file.moveTo"),
+            cmd("删除…", "file.delete"),
+            sep,
             cmd("浏览所有版本…", "file.history"),
+            cmd("复原到已保存", "file.revert"),
             cmd("从磁盘重新载入", "file.reload"),
             cmd("以其它编码重新打开…", "file.reopenWithEncoding"),
+            cmd("恢复未保存的草稿…", "native.recoverDrafts"),
             sep,
+            cmd("显示简介…", "file.info"),
             cmd("复制当前文档路径", "file.copyPath", "l"),
             cmd("在 Finder 中显示", "file.revealInFinder"),
+            cmd("在文档列表中显示", "file.revealInList"),
+            cmd("在文件树中显示", "file.revealInTree"),
             sep,
             cmd("导入…", "native.import"),
             exportMenu,
@@ -277,6 +298,7 @@ enum MainMenu {
             cmd("大纲", "view.outline", "1", [.control, .command]),
             cmd("文档列表", "view.docList", "2", [.control, .command]),
             cmd("文件树", "view.fileTree", "3", [.control, .command]),
+            cmd("大纲窗口", "view.outlinePopover"),
             sep,
             cmd("专注模式", "view.focusMode", f8, []),
             cmd("打字机模式", "view.typewriterMode", f9, []),
@@ -310,6 +332,17 @@ enum MainMenu {
 
         let help = NSMenuItem(title: "帮助", action: nil, keyEquivalent: "")
         helpMenu.addItem(cmd("快速上手", "native.welcome", "?"))
+        helpMenu.addItem(cmd("更新日志", "native.help.changelog"))
+        helpMenu.addItem(sep)
+        helpMenu.addItem(cmd("Markdown 参考", "native.help.markdown"))
+        helpMenu.addItem(cmd("使用图片", "native.help.images"))
+        helpMenu.addItem(cmd("安装与使用 Pandoc", "native.help.pandoc"))
+        helpMenu.addItem(sep)
+        helpMenu.addItem(cmd("鸣谢", "native.help.acknowledgements"))
+        helpMenu.addItem(cmd("隐私条款", "native.help.privacy"))
+        helpMenu.addItem(sep)
+        helpMenu.addItem(cmd("官方网站", "native.website"))
+        helpMenu.addItem(cmd("反馈", "native.feedback"))
         help.submenu = helpMenu
 
         for item in [appMenu, file, edit, paragraph, format, view, theme, window, help] { main.addItem(item) }
