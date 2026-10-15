@@ -14,6 +14,8 @@ declare global {
   }
 }
 
+let loadSeq = 0
+
 async function boot(): Promise<void> {
   const mount = document.getElementById('app')
   if (!mount) throw new Error('缺少 #app 挂载点')
@@ -33,7 +35,8 @@ async function boot(): Promise<void> {
     window.typozaTest = {
       host,
       app,
-      async load(markdown, path = `${DEMO_ROOT}/测试.md`) {
+      // 每次默认用新路径:同一路径会先自动保存当前文档,把刚预置的内容覆盖掉
+      async load(markdown, path = `${DEMO_ROOT}/测试-${++loadSeq}.md`) {
         host.files.set(path, { kind: 'file', data: markdown, mtime: Date.now() })
         await app.openFile(path, { replace: true })
       },

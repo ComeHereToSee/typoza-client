@@ -47,7 +47,8 @@ test.describe('图片灯箱', () => {
   test('双击正文大图打开,点空白处关闭', async ({ page }) => {
     await page.locator('.tz-editor > p .tz-image').first().dblclick()
     await expect(page.locator('.tz-lb-counter')).toHaveText('1 / 4')
-    await page.mouse.click(20, 400)
+    // 左上角空白处(避开左右切换按钮与右上工具条)
+    await page.mouse.click(60, 60)
     await expect(page.locator('.tz-lightbox')).toHaveCount(0)
   })
 

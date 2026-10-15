@@ -29,7 +29,9 @@ function blockTypeRule(re: RegExp, type: NodeType, attrs: (match: RegExpMatchArr
 function wrapRule(re: RegExp, type: NodeType): InputRule {
   return new InputRule(re, (state, _match, start, end) => {
     if (state.doc.resolve(start).parent.type !== n.paragraph) return null
-    const tr = state.tr.delete(start, end)
+    // 自动配对在光标后放了一个收尾引号时一并删掉,否则引用块里会多出一个 "
+    const after = end < state.doc.content.size ? state.doc.textBetween(end, end + 1) : ''
+    const tr = state.tr.delete(start, after === '"' || after === '”' ? end + 1 : end)
     const range = tr.doc.resolve(start).blockRange()
     const wrapping = range && findWrapping(range, type)
     if (!range || !wrapping) return null

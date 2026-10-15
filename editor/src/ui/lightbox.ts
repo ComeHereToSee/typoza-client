@@ -340,9 +340,12 @@ class Lightbox {
     stage.addEventListener('pointerup', endDrag)
     stage.addEventListener('pointercancel', endDrag)
 
-    this.img.addEventListener('dblclick', (e) => {
+    // 指针捕获在舞台上,dblclick 的目标会被改成舞台:按坐标判断是否双击在图片上
+    stage.addEventListener('dblclick', (e) => {
       e.preventDefault()
       e.stopPropagation()
+      const r = this.img.getBoundingClientRect()
+      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return
       const at = { x: e.clientX, y: e.clientY }
       if (this.fitted) {
         // 已适配:放大到 100%;若原图本来就不比窗口大,则放大到 2 倍

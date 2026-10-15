@@ -23,7 +23,7 @@ import { DOMSerializer, type Mark, type Node as PMNode } from 'prosemirror-model
 import { schema } from '../schema'
 import { escapeAttr, escapeHtml } from './html'
 import type { TzCallout, TzHtmlImage, TzInlineMark, TzMedia, TzToggle, TzWikiLink } from './mdast-types'
-import { type BlockSource, blockSources, type DocMeta } from './parse'
+import { blockSources, type DocMeta } from './parse'
 import { typoraInlineToMarkdown } from './syntax'
 
 export interface SerializeOptions {
