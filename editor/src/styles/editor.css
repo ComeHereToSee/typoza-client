@@ -178,7 +178,10 @@
 .tz-code-block .cm-editor.cm-focused { outline: none; }
 .tz-code-block .cm-scroller { font-family: var(--tz-font-mono); line-height: 1.6; padding: 4px 6px 14px; }
 .tz-code-block .cm-gutters { background: transparent; border: 0; color: var(--tz-text-faint); }
-.tz-code-block.is-diagram:not(.is-editing) .cm-editor, .tz-code-block.is-diagram:not(.is-editing) .tz-code-header { display: none; }
+/* 还没建 CodeMirror 时的占位:字体、行高、内边距与 .cm-scroller 一致,换成编辑器时不跳动 */
+.tz-code-static { margin: 0; font-family: var(--tz-font-mono); font-size: inherit; line-height: 1.6; padding: 8px 8px 18px 12px; white-space: pre-wrap; word-break: break-word; cursor: text; }
+.tz-code-static.is-nowrap { white-space: pre; overflow-x: auto; }
+.tz-code-block.is-diagram:not(.is-editing) .cm-editor, .tz-code-block.is-diagram:not(.is-editing) .tz-code-static, .tz-code-block.is-diagram:not(.is-editing) .tz-code-header { display: none; }
 .tz-diagram-preview { padding: 12px; text-align: center; cursor: pointer; overflow-x: auto; }
 .tz-diagram-preview.is-error { color: #d44c47; font-family: var(--tz-font-mono); font-size: 12px; text-align: left; white-space: pre-wrap; }
 .tz-diagram-preview.is-empty { color: var(--tz-text-faint); }

@@ -1,6 +1,6 @@
 // 应用主控:一个窗口 = 一个文档(可带一个根文件夹)。负责文档读写、侧栏、各类面板、应用级命令与宿主事件。
 import type { Node as PMNode } from 'prosemirror-model'
-import { Selection, TextSelection } from 'prosemirror-state'
+import { type EditorState, Selection, TextSelection } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
 import { collectHeadings, type HeadingItem } from '../core/blocks'
 import { createEditorState, createEditorView, sliceToMarkdown } from '../core/editor'
@@ -165,10 +165,7 @@ export class App {
     )
 
     const doc = this.session.createEmpty()
-    this.view = createEditorView(this.els.editor, createEditorState(doc, this.env), this.env, {
-      onDocChange: () => this.onDocChange(),
-      onUpdate: (v) => this.onEditorUpdate(v),
-    })
+    this.view = this.newView(createEditorState(doc, this.env))
     this.applyViewModes()
     // 偏好「默认显示大纲视图」(PA-06)
     void this.sidebar.setTab(this.settings.outlineByDefault ? 'outline' : this.settings.sidebarTab)
@@ -272,13 +269,32 @@ export class App {
 
   // ---------- 文档 ----------
 
+  private newView(state: EditorState): EditorView {
+    return createEditorView(this.els.editor, state, this.env, {
+      onDocChange: () => this.onDocChange(),
+      onUpdate: (v) => this.onEditorUpdate(v),
+    })
+  }
+
+  /**
+   * 换一篇文档:新建编辑器视图,不在旧视图上 updateState。
+   * 新旧文档差异很大时 updateState 会在已挂载的 DOM 上逐个拆旧节点(5MB 文档在 WebKit 里要几十秒);
+   * destroy 先整块摘下旧 DOM 再销毁节点视图,快得多。
+   */
+  private replaceView(state: EditorState): void {
+    const focused = this.view.hasFocus()
+    this.view.destroy()
+    this.view = this.newView(state)
+    if (focused) this.view.focus()
+  }
+
   private setDocument(doc: PMNode): void {
     resetMacros()
     const fm = frontMatterInfo(doc, this.session.path)
     this.env.ctx.path = this.session.path
     this.env.ctx.rootUrl = fm.rootUrl
     this.readOnlyWarned = false
-    this.view.updateState(createEditorState(doc, this.env))
+    this.replaceView(createEditorState(doc, this.env))
     this.applyViewModes()
     this.renderHeader()
     this.els.scroll.scrollTop = 0
@@ -679,7 +695,7 @@ export class App {
       const offset = this.source.cursor
       const doc = this.currentDoc()
       this.closeSource()
-      this.view.updateState(createEditorState(doc, this.env))
+      this.replaceView(createEditorState(doc, this.env))
       this.applyViewModes()
       this.renderHeader()
       this.placeCursor(sourceToDocPos(doc, offset, text, this.session.meta, this.serializeOptions()))
@@ -1096,7 +1112,7 @@ export class App {
             void this.updateSettings({ sidebarVisible: true })
             this.rememberLocation()
           },
-          openDocument: (path) => void this.openFile(path, { newWindow: true }),
+          openDocument: (path) => void this.openFile(path, { where: 'window' }),
           importDocument: (path) => this.importDocument(path),
           importFiles: (files, pos) => this.importFiles(this.view, files, pos),
         },
@@ -1170,12 +1186,16 @@ export class App {
             host: this.host,
             path,
             entries,
-            cloud: cloud.map((v) => ({
-              time: v.mtime,
-              label: formatVersionTime(v.mtime),
-              meta: `云端 · 第 ${v.version} 版 · ${v.thisDevice ? '本机' : '其他设备'} · ${(v.size / 1024).toFixed(1)} KB`,
-              load: () => this.sync.readVersion(path ?? '', v.version),
-            })),
+            cloud: cloud.map((v) => {
+              // 云端版本时间是 RFC 3339 字符串
+              const time = Date.parse(v.mtime)
+              return {
+                time,
+                label: formatVersionTime(time),
+                meta: `云端 · 第 ${v.version} 版 · ${v.thisDevice ? '本机' : '其他设备'} · ${(v.size / 1024).toFixed(1)} KB`,
+                load: () => this.sync.readVersion(path ?? '', v.version),
+              }
+            }),
             current: () => this.session.serialize(this.currentDoc()),
             restore: (text, time) => this.restoreVersion(text, time),
             recover: (deleted, text, time) => this.recoverDeleted(deleted, text, time),

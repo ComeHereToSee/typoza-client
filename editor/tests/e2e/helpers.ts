@@ -11,11 +11,14 @@ export async function openApp(page: Page, query = ''): Promise<void> {
   await expect(page.locator('html')).toHaveAttribute('data-ready', 'true')
 }
 
-/** 载入一篇新文档并把光标放到文末。 */
-export async function loadDoc(page: Page, markdown: string): Promise<void> {
-  await page.evaluate(async (md) => {
-    await window.typozaTest!.load(md)
-  }, markdown)
+/** 载入一篇新文档并把光标放到文末;path 不给时用演示目录里的新文件名。 */
+export async function loadDoc(page: Page, markdown: string, path?: string): Promise<void> {
+  await page.evaluate(
+    async ({ md, p }) => {
+      await window.typozaTest!.load(md, p)
+    },
+    { md: markdown, p: path },
+  )
   const editor = page.locator('.tz-editor')
   await editor.click()
   await page.keyboard.press((await modKey(page)) === 'Meta' ? 'Meta+ArrowDown' : 'Control+End')

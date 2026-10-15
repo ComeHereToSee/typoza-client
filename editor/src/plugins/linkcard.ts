@@ -194,11 +194,9 @@ export class LinkCard {
       const { text } = await this.env.host.readText(doc)
       if (seq !== this.previewSeq) return
       const excerpt = excerptOf(text, 160)
-      this.preview.replaceChildren(
-        h('div', { class: 'tz-link-preview-title' }, firstHeadingOf(text) ?? displayName(doc)),
-        excerpt ? h('div', { class: 'tz-link-preview-excerpt' }, excerpt) : null,
-        url,
-      )
+      const title = h('div', { class: 'tz-link-preview-title' }, firstHeadingOf(text) ?? displayName(doc))
+      if (excerpt) this.preview.replaceChildren(title, h('div', { class: 'tz-link-preview-excerpt' }, excerpt), url)
+      else this.preview.replaceChildren(title, url)
     } catch (err) {
       if (seq === this.previewSeq) this.preview.append(h('div', { class: 'tz-tree-error' }, `无法读取:${errText(err)}`))
     }

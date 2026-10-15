@@ -28,7 +28,8 @@ describe('源代码模式光标映射(PRD 3.10)', () => {
     expect(blockRanges(doc, meta, opts)).toEqual([
       { from: 0, to: 4 },
       { from: 6, to: 19 },
-      { from: 21, to: 34 },
+      // 「- 项目一\n- 项目二」共 11 个字符(全文 33 个字符,末尾换行不属于块)
+      { from: 21, to: 32 },
     ])
   })
 

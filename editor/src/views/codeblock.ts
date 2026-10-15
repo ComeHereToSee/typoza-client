@@ -1,6 +1,7 @@
 // 代码块:在 ProseMirror 里嵌 CodeMirror 6(按 prosemirror.net 官方「嵌入代码编辑器」示例的同步方式)。
 // 语言按需加载;mermaid / sequence / flow 图表与 ```math 公式在代码下方渲染预览,光标不在块内时只显示渲染结果(Typora 行为)。
 // 缩进宽度按偏好(PM-18);「调整缩进」命令按语言规则重排所选行或整个代码块(P-24)。
+// 大文档里有上千个代码块:CodeMirror 等块接近视口或要编辑时才建,之前用静态 <pre> 占位(建 / 拆实例与逐个测量是打开和关闭大文档的主要耗时)。
 import { defaultKeymap, indentSelection, indentWithTab } from '@codemirror/commands'
 import { LanguageDescription, bracketMatching, indentOnInput, indentUnit, syntaxHighlighting } from '@codemirror/language'
 import { languages } from '@codemirror/language-data'
@@ -36,6 +37,34 @@ function indentExtensions(env: EditorEnv) {
 
 /** 正在显示的代码块(「调整缩进」命令找光标所在的那一个)。 */
 const codeViews = new Set<CodeBlockView>()
+
+/** 代码块进入视口附近时再建 CodeMirror;提前一屏左右,滚动时看不到占位到编辑器的切换。 */
+let lazyObserver: IntersectionObserver | null = null
+const lazyViews = new WeakMap<Element, CodeBlockView>()
+
+function observeLazy(el: HTMLElement, view: CodeBlockView): void {
+  if (typeof IntersectionObserver === 'undefined') {
+    view.ensureEditor()
+    return
+  }
+  lazyObserver ??= new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue
+        lazyObserver?.unobserve(e.target)
+        lazyViews.get(e.target)?.ensureEditor()
+      }
+    },
+    { rootMargin: '800px 0px' },
+  )
+  lazyViews.set(el, view)
+  lazyObserver.observe(el)
+}
+
+function unobserveLazy(el: HTMLElement): void {
+  lazyObserver?.unobserve(el)
+  lazyViews.delete(el)
+}
 
 function activeCodeView(view: EditorView): CodeBlockView | undefined {
   return [...codeViews].find((v) => v.owns(view))
@@ -74,7 +103,9 @@ function findLanguage(name: string): LanguageDescription | null {
 
 export class CodeBlockView implements NodeView {
   dom: HTMLElement
-  private cm: CMView
+  /** 还没建 CodeMirror 时为 null,此时正文显示在 placeholder 里 */
+  private cm: CMView | null = null
+  private placeholder: HTMLPreElement | null
   private updating = false
   private readonly language = new Compartment()
   private readonly gutter = new Compartment()
@@ -93,25 +124,6 @@ export class CodeBlockView implements NodeView {
     private readonly getPos: () => number | undefined,
     private readonly env: EditorEnv,
   ) {
-    this.cm = new CMView({
-      state: CMState.create({
-        doc: node.textContent,
-        extensions: [
-          cmKeymap.of([...this.escapeKeys(), indentWithTab, ...defaultKeymap]),
-          drawSelection(),
-          indentOnInput(),
-          bracketMatching(),
-          syntaxHighlighting(classHighlighter),
-          this.language.of([]),
-          this.indent.of(indentExtensions(env)),
-          this.gutter.of(env.settings.codeLineNumbers ? lineNumbers() : []),
-          this.wrap.of(env.settings.codeLineWrap ? CMView.lineWrapping : []),
-          CMView.updateListener.of((update) => this.forwardUpdate(update)),
-          CMView.contentAttributes.of({ spellcheck: 'false', autocorrect: 'off', autocapitalize: 'off' }),
-        ],
-      }),
-    })
-
     this.langInput = h('input', {
       class: 'tz-code-lang',
       placeholder: '语言',
@@ -124,7 +136,7 @@ export class CodeBlockView implements NodeView {
       if (e.key === 'Enter') {
         e.preventDefault()
         this.setLanguageAttr(this.langInput.value.trim())
-        this.cm.focus()
+        this.ensureEditor().focus()
       }
     })
     const copy = h(
@@ -147,21 +159,61 @@ export class CodeBlockView implements NodeView {
     this.preview.addEventListener('mousedown', (e) => {
       // 点图表进入编辑
       e.preventDefault()
-      this.cm.focus()
+      this.ensureEditor().focus()
       const pos = this.getPos()
       if (pos !== undefined) this.view.dispatch(this.view.state.tr.setSelection(TextSelection.create(this.view.state.doc, pos + 1)))
     })
-    this.dom = h('div', { class: 'tz-code-block' }, header, this.cm.dom, this.preview)
+    this.placeholder = h('pre', { class: 'tz-code-static', spellcheck: 'false' }, node.textContent)
+    // 点占位:建编辑器并把光标放到点击处附近的行首
+    this.placeholder.addEventListener('mousedown', (e) => {
+      e.preventDefault()
+      const cm = this.ensureEditor()
+      const at = cm.posAtCoords({ x: e.clientX, y: e.clientY }) ?? 0
+      cm.focus()
+      cm.dispatch({ selection: { anchor: at } })
+    })
+    if (!env.settings.codeLineWrap) this.placeholder.classList.add('is-nowrap')
+    this.dom = h('div', { class: 'tz-code-block' }, header, this.placeholder, this.preview)
     ensureLanguageList()
     codeViews.add(this)
     trackMath(this)
     this.applyLanguage()
+    observeLazy(this.dom, this)
+  }
+
+  /** 建 CodeMirror 并换下占位(已建时直接返回)。 */
+  ensureEditor(): CMView {
+    if (this.cm) return this.cm
+    unobserveLazy(this.dom)
+    const cm = new CMView({
+      state: CMState.create({
+        doc: this.node.textContent,
+        extensions: [
+          cmKeymap.of([...this.escapeKeys(), indentWithTab, ...defaultKeymap]),
+          drawSelection(),
+          indentOnInput(),
+          bracketMatching(),
+          syntaxHighlighting(classHighlighter),
+          this.language.of([]),
+          this.indent.of(indentExtensions(this.env)),
+          this.gutter.of(this.env.settings.codeLineNumbers ? lineNumbers() : []),
+          this.wrap.of(this.env.settings.codeLineWrap ? CMView.lineWrapping : []),
+          CMView.updateListener.of((update) => this.forwardUpdate(update)),
+          CMView.contentAttributes.of({ spellcheck: 'false', autocorrect: 'off', autocapitalize: 'off' }),
+        ],
+      }),
+    })
+    this.cm = cm
+    this.placeholder?.replaceWith(cm.dom)
+    this.placeholder = null
+    this.loadLanguage()
+    return cm
   }
 
   /** 光标(ProseMirror 选区或 CodeMirror 焦点)在这个代码块里。 */
   owns(view: EditorView): boolean {
     if (view !== this.view) return false
-    if (this.cm.hasFocus) return true
+    if (this.cm?.hasFocus) return true
     const pos = this.getPos()
     const { from, to } = view.state.selection
     return pos !== undefined && from > pos && to < pos + this.node.nodeSize
@@ -169,7 +221,7 @@ export class CodeBlockView implements NodeView {
 
   /** 按语言的缩进规则重排所选行(whole 为整个代码块)。 */
   reindent(whole: boolean): boolean {
-    const cm = this.cm
+    const cm = this.ensureEditor()
     // 改动经 CodeMirror 的更新回调同步回文档,回调只在 CodeMirror 有焦点时转发
     cm.focus()
     if (!whole) return indentSelection(cm)
@@ -198,15 +250,22 @@ export class CodeBlockView implements NodeView {
     this.dom.classList.toggle('is-diagram', this.previewing !== null)
     this.preview.hidden = this.previewing === null
     if (this.previewing) this.schedulePreview()
-    if (name === this.loadedLanguage) return
+    this.loadLanguage()
+  }
+
+  /** 按语言加载语法高亮(编辑器建好后才需要)。 */
+  private loadLanguage(): void {
+    const cm = this.cm
+    const name = this.node.attrs.language ?? ''
+    if (!cm || name === this.loadedLanguage) return
     this.loadedLanguage = name
     const desc = findLanguage(name)
     if (!desc) {
-      this.cm.dispatch({ effects: this.language.reconfigure([]) })
+      cm.dispatch({ effects: this.language.reconfigure([]) })
       return
     }
     void desc.load().then((support) => {
-      if (this.loadedLanguage === name) this.cm.dispatch({ effects: this.language.reconfigure(support) })
+      if (this.loadedLanguage === name) cm.dispatch({ effects: this.language.reconfigure(support) })
     })
   }
 
@@ -227,7 +286,7 @@ export class CodeBlockView implements NodeView {
   // ---------- CodeMirror ↔ ProseMirror 同步 ----------
 
   private forwardUpdate(update: ViewUpdate): void {
-    if (this.updating || !this.cm.hasFocus) return
+    if (this.updating || !this.cm?.hasFocus) return
     const pos = this.getPos()
     if (pos === undefined) return
     let offset = pos + 1
@@ -248,9 +307,10 @@ export class CodeBlockView implements NodeView {
   }
 
   setSelection(anchor: number, head: number): void {
-    this.cm.focus()
+    const cm = this.ensureEditor()
+    cm.focus()
     this.updating = true
-    this.cm.dispatch({ selection: { anchor, head } })
+    cm.dispatch({ selection: { anchor, head } })
     this.updating = false
   }
 
@@ -274,7 +334,7 @@ export class CodeBlockView implements NodeView {
         // 空代码块里退格:变回普通段落(与 Notion 一致)
         key: 'Backspace',
         run: () => {
-          if (this.cm.state.doc.length > 0) return false
+          if ((this.cm?.state.doc.length ?? 0) > 0) return false
           const ok = setBlockType(schema.nodes.paragraph)(view.state, view.dispatch)
           if (ok) view.focus()
           return ok
@@ -288,6 +348,7 @@ export class CodeBlockView implements NodeView {
   }
 
   private maybeEscape(unit: 'line' | 'char', dir: -1 | 1): boolean {
+    if (!this.cm) return false
     const { state } = this.cm
     let range: { from: number; to: number } = state.selection.main
     if (!state.selection.main.empty) return false
@@ -312,6 +373,11 @@ export class CodeBlockView implements NodeView {
     }
     if (this.updating) return true
     const next = node.textContent
+    if (!this.cm) {
+      if (this.placeholder && this.placeholder.textContent !== next) this.placeholder.textContent = next
+      if (this.previewing) this.schedulePreview()
+      return true
+    }
     const cur = this.cm.state.doc.toString()
     if (next !== cur) {
       let start = 0
@@ -332,7 +398,7 @@ export class CodeBlockView implements NodeView {
 
   /** 设置变化(行号、自动换行、缩进宽度)时由编辑器调用。 */
   reconfigure(): void {
-    this.cm.dispatch({
+    this.cm?.dispatch({
       effects: [
         this.gutter.reconfigure(this.env.settings.codeLineNumbers ? lineNumbers() : []),
         this.wrap.reconfigure(this.env.settings.codeLineWrap ? CMView.lineWrapping : []),
@@ -344,7 +410,7 @@ export class CodeBlockView implements NodeView {
   }
 
   selectNode(): void {
-    this.cm.focus()
+    this.ensureEditor().focus()
   }
 
   stopEvent(): boolean {
@@ -359,7 +425,8 @@ export class CodeBlockView implements NodeView {
     clearTimeout(this.renderTimer)
     codeViews.delete(this)
     untrackMath(this)
-    this.cm.destroy()
+    unobserveLazy(this.dom)
+    this.cm?.destroy()
   }
 }
 

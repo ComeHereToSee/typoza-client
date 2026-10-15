@@ -32,7 +32,8 @@ export interface ImageCommandContext {
   docPath(): string | null
   toast(message: string, error?: boolean): void
   /** 按「插入图片时」规则落盘(与粘贴、拖入一致),返回写进文档的地址 */
-  importFile(file: ImportFile): Promise<{ src: string }>
+  /** 用户在首次上传确认里取消时为 null */
+  importFile(file: ImportFile): Promise<{ src: string } | null>
   /** 按偏好的上传服务上传(首次会确认);用户取消返回 null */
   upload(paths: string[]): Promise<string[] | null>
   setFrontMatter(key: string, value: string | null): void
@@ -257,9 +258,10 @@ export function registerImageCommands(ctx: ImageCommandContext): void {
     if (!ref) return
     const path = (await ctx.host.openDialog({ extensions: IMAGE_EXTENSIONS }))?.[0]
     if (!path) return
-    const { src } = await ctx.importFile({ name: basename(path), path })
+    const imported = await ctx.importFile({ name: basename(path), path })
+    if (!imported) return
     const pos = locateNode(view.state.doc, ref.node)
-    if (pos !== null) setImageAttrs(view, pos, { src })
+    if (pos !== null) setImageAttrs(view, pos, { src: imported.src })
   })
 
   // M-23:批量复制 / 移动本文全部图片;网络图片下载到目标文件夹

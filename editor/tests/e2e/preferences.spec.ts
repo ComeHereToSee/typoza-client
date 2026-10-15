@@ -85,7 +85,7 @@ test.describe('主题', () => {
 
 test.describe('缩放', () => {
   const zoom = (page: Page) => page.evaluate(() => document.documentElement.style.getPropertyValue('--tz-zoom'))
-  const wheel = (page: Page, init: WheelEventInit) =>
+  const wheel = (page: Page, init: { deltaY: number; metaKey?: boolean; ctrlKey?: boolean }) =>
     page.evaluate((i) => document.querySelector('.tz-editor')!.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, ...i })), init)
 
   test('放大、缩小、实际大小命令', async ({ page }) => {
@@ -230,7 +230,10 @@ test.describe('导出', () => {
     const exported = await calls(page, 'exportDocument')
     expect(exported.map((a) => [a[0], a[1]])).toEqual([['html', '/demo/导出测试.html']])
     await expect.poll(() => calls(page, 'revealInFinder')).toEqual([['/demo/导出测试.html']])
-    const html = await page.evaluate(() => window.typozaTest!.host.files.get('/demo/导出测试.html')?.data as string)
+    const html = await page.evaluate(() => {
+      const f = window.typozaTest!.host.files.get('/demo/导出测试.html')
+      return f?.kind === 'file' ? String(f.data) : ''
+    })
     expect(html).toContain('导出测试')
     expect(html).not.toContain('注释')
 
