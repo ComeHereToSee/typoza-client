@@ -16,13 +16,20 @@ const INITIAL_BLOCKS = 120
 const HOST_CLASS = 'tz-vp'
 let styleEl: HTMLStyleElement | null = null
 
-function ruleFor(hiddenBefore: number, lastVisible: number): string {
-  // :nth-child 从 1 起算;前 hiddenBefore 个与第 lastVisible 个之后的子元素隐藏
+function ruleFor(hiddenBefore: number, lastVisible: number, keep: number): string {
+  // :nth-child 从 1 起算;前 hiddenBefore 个与第 lastVisible 个之后的子元素隐藏。
+  // keep(从 1 起算,0 为没有)是光标所在块:用户滚走后它也不能隐藏,否则 WebKit 里打不进字
   const sel = `.tz-editor-host.${HOST_CLASS} > .ProseMirror`
+  const not = keep > 0 ? `:not(:nth-child(${keep}))` : ''
   const parts: string[] = []
-  if (hiddenBefore > 0) parts.push(`${sel} > :nth-child(-n+${hiddenBefore})`)
-  parts.push(`${sel} > :nth-child(n+${lastVisible + 1})`)
+  if (hiddenBefore > 0) parts.push(`${sel} > :nth-child(-n+${hiddenBefore})${not}`)
+  parts.push(`${sel} > :nth-child(n+${lastVisible + 1})${not}`)
   return `@media screen { ${parts.join(', ')} { display: none !important; } }`
+}
+
+/** 位置所在的顶层块下标。 */
+function topIndex(doc: PMNode, pos: number): number {
+  return doc.resolve(Math.max(0, Math.min(pos, doc.content.size))).index(0)
 }
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iP(hone|[oa]d)/.test(navigator.platform)
@@ -101,7 +108,7 @@ class Viewport {
       // 顶层块数变了:改动在窗口之前则整体平移,在窗口内则窗口跟着伸缩
       const delta = doc.childCount - prev.doc.childCount
       const diff = prev.doc.content.findDiffStart(doc.content)
-      const at = diff === null ? doc.childCount : doc.content.findIndex(diff).index
+      const at = diff === null ? doc.childCount : topIndex(doc, diff)
       if (at < this.from) {
         this.from = Math.max(0, this.from + delta)
         this.to = Math.max(this.from, this.to + delta)
@@ -114,7 +121,7 @@ class Viewport {
     // 光标移动或输入后,光标所在块必须在窗口里:跳转、全选、查找定位后要能显示光标、滚到光标。
     // 只有界面元信息的事务(没改选区和文档)不动窗口,免得用户滚走后视口被拉回
     if (!prev || prev.doc !== doc || !prev.selection.eq(view.state.selection)) {
-      const head = doc.content.findIndex(Math.min(view.state.selection.head, doc.content.size)).index
+      const head = topIndex(doc, view.state.selection.head)
       if (head < this.from || head >= this.to) {
         this.from = Math.max(0, head - 40)
         this.to = Math.min(doc.childCount, head + 80)
@@ -125,6 +132,9 @@ class Viewport {
     this.to = Math.min(Math.max(this.to, this.from + 1), doc.childCount)
     if (changed) {
       this.apply()
+      // ProseMirror 先同步 DOM 选区、后调插件视图:同步时光标所在块可能还隐藏着(WebKit 会把选区挪到可见处),
+      // 块显示出来后让它按当前选区重新同步一次
+      if (view.hasFocus()) view.focus()
       // 下一帧按实际滚动位置再定一次窗口
       this.schedule()
     }
@@ -191,8 +201,10 @@ class Viewport {
     const first = this.domIndex(this.from)
     const last = this.domIndex(this.to - 1)
     if (first < 0 || last < 0) return
+    const head = topIndex(this.view.state.doc, this.view.state.selection.head)
+    const keep = head < this.from || head >= this.to ? this.domIndex(head) + 1 : 0
     styleEl ??= document.head.appendChild(Object.assign(document.createElement('style'), { id: 'tz-viewport' }))
-    styleEl.textContent = ruleFor(first, last + 1)
+    styleEl.textContent = ruleFor(first, last + 1, keep)
     this.host.style.paddingTop = `${Math.round(this.sum(0, this.from))}px`
     this.host.style.paddingBottom = `${Math.round(this.sum(this.to, this.heights.length))}px`
   }
@@ -261,7 +273,7 @@ class Viewport {
     let to = from
     while (to < this.heights.length && y < want1) y += this.heights[to++]
     // 光标所在块留在窗口里
-    const head = doc.content.findIndex(Math.min(this.view.state.selection.head, doc.content.size)).index
+    const head = topIndex(doc, this.view.state.selection.head)
     if (head >= from - 200 && head < from) from = head
     if (head >= to && head < to + 200) to = head + 1
     to = Math.max(to, from + 1)
