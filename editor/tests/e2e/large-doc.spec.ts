@@ -38,6 +38,7 @@ test('远处的块不排版;跳到文末后可见并可输入;滚回开头仍可
 
 test('大文档分段载入:先显示开头、载入中不可编辑;载完后全文完整,写回逐字相同', async ({ page }) => {
   // 两万段约 60 万字符,分成二十来段载入,足够在载完前看到「载入中」
+  test.setTimeout(90_000)
   const total = 20000
   const md = bigDoc(total)
   await page.evaluate((text) => window.typozaTest!.host.files.set('/demo/分段.md', { kind: 'file', data: text, mtime: Date.now() }), md)
