@@ -147,7 +147,7 @@ export function localPathOf(env: EditorEnv, src: string): string | null {
   return resolveLocalPath(src, env.ctx)
 }
 
-/** 收集文档里全部图片(按出现顺序),供灯箱前后切换。HTML 块与行内 HTML 里的 <img> 也算。 */
+/** 收集文档里全部图片(按出现顺序),供灯箱前后切换。HTML 块里的 <img> 也算。 */
 export function collectImages(view: EditorView, env: EditorEnv): { images: LightboxImage[]; positions: number[] } {
   const images: LightboxImage[] = []
   const positions: number[] = []
@@ -163,9 +163,9 @@ export function collectImages(view: EditorView, env: EditorEnv): { images: Light
         element: dom instanceof HTMLElement ? (dom.querySelector('img') ?? dom) : null,
       })
       positions.push(pos)
-    } else if (node.type === schema.nodes.html_block || node.type === schema.nodes.html_inline) {
+    } else if (node.type === schema.nodes.html_block) {
       const dom = view.nodeDOM(pos)
-      const imgs = dom instanceof HTMLElement ? dom.querySelectorAll<HTMLImageElement>(node.type === schema.nodes.html_block ? '.tz-html-preview img' : 'img') : []
+      const imgs = dom instanceof HTMLElement ? dom.querySelectorAll<HTMLImageElement>('.tz-html-preview img') : []
       for (const img of Array.from(imgs)) {
         const src = img.getAttribute('data-tz-src') ?? img.getAttribute('src') ?? ''
         images.push({ url: img.src, alt: img.alt, path: localPathOf(env, src), src, element: img })

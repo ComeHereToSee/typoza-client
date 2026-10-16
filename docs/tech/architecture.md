@@ -77,8 +77,7 @@ flowchart LR
 
 - 契约:`editor/src/host/types.ts` 的 `Host` 接口;方法名即桥接消息的 `method`(`fs.readText`、`dialog.open`…),外壳 `DocumentWindowController.handle` 按名分发。浏览器开发与 E2E 用内存宿主 `host/memory.ts`(含模拟云同步 `host/fake-sync.ts`,方法与错误码对齐辅助进程)。
 - 资源:编辑器从 `typoza://app/` 加载(ES module 在 `file://` 下不可靠);本机文件走 `typoza://local/<绝对路径>`,支持 HTTP Range(视频拖动进度)。
-- **来源校验**:WKWebView 的消息处理器对所有框架可见,文档里嵌入的网页也能调用;外壳只接受主框架且来源为 `typoza://app` 的调用(`BridgeOrigin`)。HTML 块经 DOMPurify 净化(去掉 script / style / object / embed / form,预览去掉 class / id),iframe 加沙箱:只有远程网页给同源,本地网页与相对地址不给。PDF 框不加沙箱(要用系统的 PDF 显示),只按路径判断 `.pdf`(`x.html#.pdf` 不算)。
-- **本机文件隔离**:`typoza://local` 下所有文件同源,带着它跑脚本就能读走本机任意文件。外壳对其中的网页类文件(html / xhtml / svg / xml)加 `Content-Security-Policy: sandbox` 响应头(不透明源),所有本机文件 `nosniff`;资源地址只认 http(s) / data / blob / file / typoza。编辑器页面自身有 CSP,只执行应用自带脚本;文档里的 HTML 片段一律在 `<template>` 或 DOMParser 里解析(游离 div 里的 `<img onerror>` 会执行)。
+- **来源校验**:WKWebView 的消息处理器对所有框架可见,文档里嵌入的网页也能调用;外壳只接受主框架且来源为 `typoza://app` 的调用(`BridgeOrigin`)。HTML 块经 DOMPurify 净化(去掉 script / style / object / embed / form),iframe 一律加沙箱。
 - 导航:主框架只允许 `typoza://`;点到本机 Markdown 在 Typoza 打开,其余网址交给系统浏览器。
 
 ## 5. 云同步客户端

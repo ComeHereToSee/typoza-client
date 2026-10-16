@@ -185,7 +185,7 @@ export function createEditorView(mount: HTMLElement, state: EditorState, env: Ed
       list_item: (node, v, getPos) => new ListItemView(node, v, getPos),
       toc: (_node, v) => new TocView(v),
       html_block: (node, v, getPos) => new HtmlBlockView(node, v, getPos, env),
-      html_inline: (node, v) => new HtmlInlineView(node, v, env),
+      html_inline: (node) => new HtmlInlineView(node, env),
       frontmatter: () => new FrontMatterView(),
       footnote_ref: (node, v) => new FootnoteRefView(node, v, env),
       wikilink: (node) => new WikiLinkView(node, env),
