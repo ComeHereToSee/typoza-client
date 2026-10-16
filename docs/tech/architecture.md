@@ -66,6 +66,13 @@ flowchart LR
 
 主包约 1 MB(含 ProseMirror、CodeMirror、remark)。Mermaid(及其布局引擎)、KaTeX、表情数据(约 240 KB,构建期从 emojibase 裁剪生成 `virtual:tz-emoji`)、二维码库都在首次用到时才加载,不影响冷启动。
 
+### 3.4 大文档
+
+- **代码块懒建编辑器**:每个代码块先用静态 `<pre>` 占位,接近视口(上下各约一屏)、获得光标或被点击时才建 CodeMirror。上千个 CodeMirror 实例的创建、测量与销毁曾是打开和关闭大文档的主要耗时。
+- **换文档重建编辑器视图**:打开另一篇文档时销毁旧的 EditorView、新建一个,不在旧视图上 `updateState`。新旧文档差异很大时,`updateState` 会在已挂载的 DOM 上逐个拆旧节点,WebKit 里 5MB 文档要 20 秒以上;销毁视图是整块摘下 DOM,实测切回小文档约 0.65 秒。
+- **依赖补丁**:`scripts/patch-deps.mjs` 在 npm 安装时改 `micromark-extension-gfm-table` 的 EditMap,不再复制未改动的事件前缀;补丁未落盘时安装直接失败,单测再校验一次。
+- **性能剖析**:独立工作流 `.github/workflows/perf.yml`,推 `perf` 分支触发(不被 dev 的推送取消)。Chromium 用 CDP 采样剖析解析、打开、输入、切回四个阶段,WebKit 只计时,看耗时随文档大小的增长;结果在 `ci/perf` 分支的 `perf/perf.md`。macOS 冒烟另在真实应用里量 5MB 文档的解析、打开、输入 p95 与保存。
+
 ## 4. 宿主桥接
 
 - 契约:`editor/src/host/types.ts` 的 `Host` 接口;方法名即桥接消息的 `method`(`fs.readText`、`dialog.open`…),外壳 `DocumentWindowController.handle` 按名分发。浏览器开发与 E2E 用内存宿主 `host/memory.ts`(含模拟云同步 `host/fake-sync.ts`,方法与错误码对齐辅助进程)。
@@ -116,6 +123,7 @@ flowchart LR
 | editor(Ubuntu,Node 24) | 构建、类型检查、Vitest 单测(含 CommonMark 规范用例)、Playwright WebKit E2E、渲染应用图标 | `editor-dist`、`app-icon` |
 | helper(Ubuntu,Go) | vet、`go test -race`(含两台设备经 RPC 的端到端流程,对着 sdk 假服务端)、交叉编译 darwin arm64 / amd64 | `helper-darwin` |
 | macos(macOS 15) | `swift test`、组装通用二进制 Typoza.app(内嵌辅助进程、图标、ad-hoc 签名)、冒烟自检、打 DMG | `Typoza.dmg` |
+| perf(Ubuntu,独立工作流) | 推 `perf` 分支触发:大文档分阶段剖析(Chromium 采样 + WebKit 计时) | `perf/perf.md` |
 
 - 每个任务把步骤日志与产物强推到 `ci/<任务名>` 孤儿分支,本机 `localClaude/ci.sh` 拉取查看(仓库私有、无 API 令牌)。
 - 冒烟自检:以 `--smoke-out` 启动打包好的应用,写入截图场景文档 → 打开 → 双击表格里的图片 → 确认灯箱与图片加载 → 字节往返 → 经外壳调辅助进程取同步状态 → 截图并写 `smoke.json`。
