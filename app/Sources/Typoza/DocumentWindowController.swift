@@ -709,6 +709,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
         webView.callAsyncJavaScript("return await window.typoza.smoke()", arguments: [:], in: nil, in: .page) { [weak self] result in
             guard let self else { return }
             var report: [String: Any] = ["readySeconds": readySeconds, "launchMarks": self.app.launchMarks, "launchEpochMs": self.app.launchEpochMs]
+            report["menuKeys"] = Self.menuKeys(NSApp.mainMenu)
             if let preMain = self.app.preMainSeconds { report["preMainSeconds"] = preMain }
             switch result {
             case .success(let value): report["result"] = value
@@ -731,6 +732,19 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
                 }
             }
         }
+    }
+
+    /// 整张菜单的键位 [标题, 键位](冒烟导出,CI 与 docs/prd/notion-input.md 5.2 核对)
+    static func menuKeys(_ menu: NSMenu?) -> [[String]] {
+        var out: [[String]] = []
+        for item in menu?.items ?? [] {
+            if !item.keyEquivalent.isEmpty {
+                let m = item.keyEquivalentModifierMask
+                out.append([item.title, MenuKeyLabel.text(key: item.keyEquivalent, control: m.contains(.control), option: m.contains(.option), shift: m.contains(.shift), command: m.contains(.command))])
+            }
+            out += menuKeys(item.submenu)
+        }
+        return out
     }
 
     private func writeSmokeAndExit(_ report: [String: Any], to out: URL, code: Int32) {
