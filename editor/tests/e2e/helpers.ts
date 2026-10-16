@@ -19,8 +19,8 @@ export async function loadDoc(page: Page, markdown: string, path?: string): Prom
     },
     { md: markdown, p: path },
   )
-  const editor = page.locator('.tz-editor')
-  await editor.click()
+  // 程序化聚焦,不模拟点击:点在编辑区中心可能正好落在图片上,紧接着的点击会被 ProseMirror 当成双击
+  await page.evaluate(() => window.typozaTest!.app.view.focus())
   await page.keyboard.press((await modKey(page)) === 'Meta' ? 'Meta+ArrowDown' : 'Control+End')
 }
 

@@ -2,6 +2,7 @@
 import type { MarkType } from 'prosemirror-model'
 import { NodeSelection, Plugin, type EditorState } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
+import { CellSelection } from 'prosemirror-tables'
 import { BlockSelection } from '../core/block-selection'
 import { currentBlockKind, markRange } from '../core/commands'
 import type { EditorEnv } from '../core/env'
@@ -211,6 +212,7 @@ class SelectionToolbar {
       !sel.empty &&
       !(sel instanceof NodeSelection) &&
       !(sel instanceof BlockSelection) &&
+      !(sel instanceof CellSelection) &&
       !sel.$from.parent.type.spec.code &&
       !view.composing
     if (!show) {

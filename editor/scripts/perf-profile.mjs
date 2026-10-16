@@ -116,7 +116,7 @@ try {
       },
       { text: bigMarkdown(size), path },
     )
-  for (const kb of [256, 512, 1024]) {
+  for (const kb of [256, 512, 1024, 2048, 5120]) {
     const r = await measure(kb * 1024, `/demo/size-${kb}.md`)
     report.scaling.push({ kb, ...r })
     log('档位', kb, 'KB', JSON.stringify(r))
@@ -148,15 +148,22 @@ try {
   report.phases.input = await profiled('连续输入', () =>
     page.evaluate(() => {
       const view = window.typozaTest.app.view
-      const samples = []
+      // 分两段计:事务(状态 + 插件 + 视图更新)与之后强制布局,看延迟落在哪一侧
+      const total = []
+      const dispatch = []
       for (let i = 0; i < 40; i++) {
         const t = performance.now()
         view.dispatch(view.state.tr.insertText('字', 3))
+        const t1 = performance.now()
         void view.dom.getBoundingClientRect().height
-        samples.push(performance.now() - t)
+        dispatch.push(t1 - t)
+        total.push(performance.now() - t)
       }
-      samples.sort((a, b) => a - b)
-      return { p50: Math.round(samples[20] * 10) / 10, p95: Math.round(samples[37] * 10) / 10, max: Math.round(samples[39] * 10) / 10 }
+      const stat = (xs) => {
+        xs.sort((a, b) => a - b)
+        return { p50: Math.round(xs[20] * 10) / 10, p95: Math.round(xs[37] * 10) / 10, max: Math.round(xs[39] * 10) / 10 }
+      }
+      return { total: stat(total), dispatch: stat(dispatch) }
     }),
   )
   report.phases.switchBackMs = await profiled('切回小文档', () =>
@@ -172,7 +179,7 @@ try {
 }
 
 writeFileSync(join(out, 'perf.json'), JSON.stringify(report, null, 2))
-const lines = [`# 大文档性能剖析(Chromium,开发版)`, '', '## 规模与耗时', '', '```json', JSON.stringify(report.scaling, null, 2), '```', '', `剖析文档 ${report.bytes} 字节,${report.blocks} 个顶层块`, '', '```json', JSON.stringify(report.phases, null, 2), '```']
+const lines = [`# 大文档性能剖析(Chromium,不压缩的生产构建)`, '', '## 规模与耗时', '', '```json', JSON.stringify(report.scaling, null, 2), '```', '', `剖析文档 ${report.bytes} 字节,${report.blocks} 个顶层块`, '', '```json', JSON.stringify(report.phases, null, 2), '```']
 for (const [name, p] of Object.entries(report.profiles)) {
   lines.push('', `## ${name} · 自耗时 Top`, '', '| 毫秒 | 函数 |', '|---|---|', ...p.self.map((x) => `| ${x.ms} | ${x.fn} |`))
   lines.push('', `## ${name} · 含子调用 Top`, '', '| 毫秒 | 函数 |', '|---|---|', ...p.total.slice(0, 25).map((x) => `| ${x.ms} | ${x.fn} |`))

@@ -43,7 +43,10 @@ export class MediaView implements NodeView {
 
   private select(): void {
     const pos = this.getPos()
-    if (pos !== undefined) this.view.dispatch(this.view.state.tr.setSelection(NodeSelection.create(this.view.state.doc, pos)))
+    if (pos === undefined) return
+    this.view.dispatch(this.view.state.tr.setSelection(NodeSelection.create(this.view.state.doc, pos)))
+    // 焦点留在工具条按钮上时,按键事件落在节点视图内部、编辑器不处理
+    this.view.focus()
   }
 
   private buildToolbar(): HTMLElement {

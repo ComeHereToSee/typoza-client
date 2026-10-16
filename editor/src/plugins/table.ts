@@ -22,7 +22,7 @@ import {
   removeRow,
   selectedRect,
 } from 'prosemirror-tables'
-import type { Command } from 'prosemirror-state'
+import type { Command, Transaction } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
 import { fillCells } from '../core/commands'
 import { registerCommand, runCommand } from '../core/registry'
@@ -75,19 +75,29 @@ export function resizeTable(rows: number, cols: number): Command {
     const found = findTable(state.selection.$from)
     if (!found || rows < 1 || cols < 1) return false
     if (dispatch) {
-      const tr = state.tr
-      const rect = (): TableRect => {
+      // prosemirror-tables 的 addColumn 会把位置再经过整个事务的映射,同一事务里前面已有增删时会算错;
+      // 所以每加 / 删一行一列都在上一步的结果上新开事务,最后把各步合成一个事务(撤销时一步撤回)
+      let current = state
+      const steps: Transaction['steps'][number][] = []
+      const apply = (op: (tr: Transaction, rect: TableRect) => void) => {
+        const tr = current.tr
         const table = tr.doc.nodeAt(found.pos)
         if (!table) throw new Error('调整行列数时表格丢失')
         const map = TableMap.get(table)
-        return { left: 0, top: 0, right: map.width, bottom: map.height, map, table, tableStart: found.pos + 1 }
+        op(tr, { left: 0, top: 0, right: map.width, bottom: map.height, map, table, tableStart: found.pos + 1 })
+        steps.push(...tr.steps)
+        current = current.apply(tr)
+        return map
       }
-      // 先把光标放到第一格,删行列时不会落进被删的格子
-      tr.setSelection(TextSelection.create(tr.doc, found.pos + 3))
-      for (let r = rect(); r.map.height < rows; r = rect()) addRow(tr, r, r.map.height)
-      for (let r = rect(); r.map.height > rows; r = rect()) removeRow(tr, r, r.map.height - 1)
-      for (let r = rect(); r.map.width < cols; r = rect()) addColumn(tr, r, r.map.width)
-      for (let r = rect(); r.map.width > cols; r = rect()) removeColumn(tr, r, r.map.width - 1)
+      const size = () => TableMap.get(current.doc.nodeAt(found.pos) ?? found.node)
+      while (size().height < rows) apply((tr, r) => addRow(tr, r, r.map.height))
+      while (size().height > rows) apply((tr, r) => removeRow(tr, r, r.map.height - 1))
+      while (size().width < cols) apply((tr, r) => addColumn(tr, r, r.map.width))
+      while (size().width > cols) apply((tr, r) => removeColumn(tr, r, r.map.width - 1))
+      const tr = state.tr
+      for (const step of steps) tr.step(step)
+      // 光标放到第一格,不会落进被删的格子
+      tr.setSelection(TextSelection.near(tr.doc.resolve(found.pos + 3)))
       dispatch(tr.scrollIntoView())
     }
     return true

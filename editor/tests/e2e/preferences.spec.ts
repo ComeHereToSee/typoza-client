@@ -61,10 +61,11 @@ test.describe('主题', () => {
       files.set(`${folder}/base.user.css`, { kind: 'file', data: '.tz-editor { --base-user: 1; }', mtime: 1 })
     })
     await command(page, 'theme.my-dark')
-    const style = page.locator('#tz-user-theme')
-    await expect(style).toContainText('--custom-theme: 1')
-    await expect(style).toContainText('--base-user: 1')
-    await expect(style).not.toContainText('url(img/bg.png)')
+    // Playwright 的文本断言不读 <style> 的内容,直接取 textContent
+    const css = () => page.evaluate(() => document.getElementById('tz-user-theme')?.textContent ?? '')
+    await expect.poll(css).toContain('--custom-theme: 1')
+    expect(await css()).toContain('--base-user: 1')
+    expect(await css()).not.toContain('url(img/bg.png)')
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'my-dark')
     // 文件名带 dark / night 的自定义主题按深色主题处理
     await expect(page.locator('html')).toHaveClass(/tz-dark/)

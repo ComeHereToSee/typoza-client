@@ -67,44 +67,41 @@ export async function runSmoke(app: App, bootTimings: Record<string, number> = {
     const big = bigMarkdown(5 * 1024 * 1024)
     await host.writeText(`${dir}/big.md`, big)
     timings.bigBytes = new TextEncoder().encode(big).length
-    // 先分段(解析各阶段 / 建状态 / 渲染 DOM / 首帧)找瓶颈,再走真实的打开流程计总时
+    // 先单独量解析各阶段与建状态找瓶颈,再走真实的打开流程(读盘 + 解析 + 建视图 + 首帧)计总时
     let t = performance.now()
     const parsed = parseMarkdown(big, { inlineMath: true })
     timings.bigParseMs = Math.round(performance.now() - t)
     for (const [k, v] of Object.entries(parseTimings)) timings[`bigParse_${k}`] = v
     t = performance.now()
-    const state = createEditorState(parsed.doc, app.env)
+    createEditorState(parsed.doc, app.env)
     timings.bigStateMs = Math.round(performance.now() - t)
     t = performance.now()
-    app.view.updateState(state)
-    timings.bigRenderMs = Math.round(performance.now() - t)
-    t = performance.now()
-    await nextFrame()
-    timings.bigFrameMs = Math.round(performance.now() - t)
-    // 换回小文档(同时量拆除大文档的耗时),避免下面真实打开时复用刚渲染的 DOM 而失真
-    t = performance.now()
-    app.view.updateState(createEditorState(parseMarkdown('# 换场\n', { inlineMath: true }).doc, app.env))
-    timings.bigTeardownMs = Math.round(performance.now() - t)
-    t = performance.now()
     await app.openFile(`${dir}/big.md`, { replace: true })
+    timings.bigOpenSyncMs = Math.round(performance.now() - t)
     await nextFrame()
     timings.bigOpenMs = Math.round(performance.now() - t)
     checks.bigDocLoaded = app.view.state.doc.childCount > 10000
     const view = app.view
     view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(view.state.doc.child(0).nodeSize - 1))))
+    // 单键耗时分两段:事务(状态 + 插件 + 视图更新)与之后的强制排版
     const samples: number[] = []
+    const dispatchSamples: number[] = []
     for (let i = 0; i < 60; i++) {
       const s0 = performance.now()
       view.dispatch(view.state.tr.insertText('字'))
+      const s1 = performance.now()
       void view.dom.getBoundingClientRect().height // 强制排版,计入上屏前的布局
+      dispatchSamples.push(s1 - s0)
       samples.push(performance.now() - s0)
     }
+    timings.bigInputDispatchP95Ms = Math.round(percentile(dispatchSamples, 95) * 10) / 10
     timings.bigInputP95Ms = Math.round(percentile(samples, 95) * 10) / 10
     timings.bigInputMaxMs = Math.round(Math.max(...samples) * 10) / 10
     t = performance.now()
     checks.bigSaved = await app.save()
     timings.bigSaveMs = Math.round(performance.now() - t)
 
+    // 从大文档换到小文档:含拆除大文档的耗时
     const t0 = performance.now()
     await app.openFile(`${dir}/smoke.md`, { replace: true })
     timings.openMs = Math.round(performance.now() - t0)

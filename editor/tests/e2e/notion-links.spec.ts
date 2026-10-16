@@ -53,7 +53,7 @@ test('[[文档名]] 单击不打开,⌘+点击在新标签页打开;同名优先
   })
   await page.evaluate(() => window.typozaTest!.load('见 [[另一篇]]\n', '/demo/sub/当前.md'))
   const opened = () =>
-    page.evaluate(() => window.typozaTest!.host.calls.filter((c) => c.method === 'openDocument').map((c) => [c.args[0], (c.args[1] as { newWindow?: boolean }).newWindow]))
+    page.evaluate(() => window.typozaTest!.host.calls.filter((c) => c.method === 'openDocument').map((c) => [c.args[0], (c.args[1] as { tab?: boolean }).tab]))
   const link = page.locator('.tz-editor .tz-wikilink')
   await link.click()
   expect(await opened()).toEqual([])

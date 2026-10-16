@@ -588,7 +588,7 @@ export class App {
   private async pickCover(): Promise<void> {
     const paths = await this.host.openDialog({ extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] })
     if (!paths?.[0]) {
-      this.setFrontMatter('cover', 'linear-gradient(135deg, #f6d365 0%, #fda085 100%)')
+      this.setFrontMatter('cover', 'linear-gradient(135deg, rgb(246, 211, 101) 0%, rgb(253, 160, 133) 100%)')
       return
     }
     const imported = await importFile(this.importContext(), { name: basename(paths[0]), path: paths[0] })

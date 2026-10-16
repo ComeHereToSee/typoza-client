@@ -267,10 +267,13 @@ p > .tz-image:only-child { display: block; width: fit-content; margin: 4px auto;
   display: none;
 }
 .tz-image.ProseMirror-selectednode .tz-image-handle, .tz-image.is-resizing .tz-image-handle { display: block; }
+/* 工具条浮在图片上方居中,不盖住图片:小图(动图、缩小后的图)也能直接点中选中 */
 .tz-image-toolbar {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
   display: none;
   gap: 2px;
   padding: 3px;
@@ -280,6 +283,8 @@ p > .tz-image:only-child { display: block; width: fit-content; margin: 4px auto;
   z-index: 2;
 }
 .tz-image:hover .tz-image-toolbar, .tz-image.ProseMirror-selectednode .tz-image-toolbar { display: flex; }
+/* 图片与工具条之间的空隙:鼠标移过去时仍算悬停在图片上 */
+.tz-image-toolbar::after { content: ''; position: absolute; left: 0; right: 0; top: 100%; height: 8px; }
 .tz-image-tool, .tz-image-zoom {
   border: 0;
   background: none;
@@ -294,6 +299,8 @@ p > .tz-image:only-child { display: block; width: fit-content; margin: 4px auto;
 }
 .tz-image-tool:hover, .tz-image-zoom:hover { background: rgba(255, 255, 255, 0.18); }
 .tz-image-zoom option { color: #000; }
+/* WebKit 原生下拉框是白底,与白字叠在一起看不见 */
+.tz-image-zoom { -webkit-appearance: none; appearance: none; background: rgba(255, 255, 255, 0.12); }
 .tz-image.is-broken img { display: none; }
 .tz-image-broken {
   display: inline-block;
