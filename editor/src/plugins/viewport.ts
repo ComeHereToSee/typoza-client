@@ -46,8 +46,15 @@ function docEdgeKey(e: KeyboardEvent): -1 | 0 | 1 {
 }
 
 export function viewportPlugin(): Plugin {
+  let current: Viewport | null = null
   return new Plugin({
-    view: (view) => new Viewport(view),
+    view: (view) => (current = new Viewport(view, () => (current = null))),
+    // 光标跳进被隐藏的块(文末、查找定位、大纲跳转):要在 ProseMirror 把 DOM 选区放进去之前先显示它,
+    // 放进不排版元素里的选区会被 WebKit 直接丢掉,之后 ProseMirror 也不再同步选区
+    appendTransaction(_trs, oldState, newState) {
+      if (current && oldState.doc === newState.doc && !oldState.selection.eq(newState.selection)) current.reveal(newState)
+      return null
+    },
     props: {
       // 裁剪后被隐藏的块里放不进原生光标,文首 / 文末跳转由这里按文档位置处理
       handleKeyDown(view, event) {
@@ -79,7 +86,10 @@ class Viewport {
   private readonly resize = new ResizeObserver(() => this.schedule(true))
   private lastWidth = 0
 
-  constructor(private readonly view: EditorView) {
+  constructor(
+    private readonly view: EditorView,
+    private readonly onDestroy: () => void,
+  ) {
     this.host = view.dom.parentElement ?? document.body
     this.scroller = (view.dom.closest('.tz-scroll') as HTMLElement | null) ?? document.documentElement
     this.scroller.addEventListener('scroll', this.onScroll, { passive: true })
@@ -140,7 +150,19 @@ class Viewport {
     }
   }
 
+  /** 新状态的光标所在块不在窗口里时,立即把窗口移过去(文档结构与当前 DOM 相同时才调用)。 */
+  reveal(state: EditorState): void {
+    if (!this.active) return
+    const head = topIndex(state.doc, state.selection.head)
+    if (head >= this.from && head < this.to) return
+    this.from = Math.max(0, head - 40)
+    this.to = Math.min(state.doc.childCount, head + 80)
+    this.apply(state)
+    this.schedule()
+  }
+
   destroy(): void {
+    this.onDestroy()
     cancelAnimationFrame(this.frame)
     this.scroller.removeEventListener('scroll', this.onScroll)
     this.resize.disconnect()
@@ -197,11 +219,11 @@ class Viewport {
   }
 
   /** 应用窗口:隐藏规则与上下内边距。 */
-  private apply(): void {
+  private apply(state: EditorState = this.view.state): void {
     const first = this.domIndex(this.from)
     const last = this.domIndex(this.to - 1)
     if (first < 0 || last < 0) return
-    const head = topIndex(this.view.state.doc, this.view.state.selection.head)
+    const head = topIndex(state.doc, state.selection.head)
     const keep = head < this.from || head >= this.to ? this.domIndex(head) + 1 : 0
     styleEl ??= document.head.appendChild(Object.assign(document.createElement('style'), { id: 'tz-viewport' }))
     styleEl.textContent = ruleFor(first, last + 1, keep)
