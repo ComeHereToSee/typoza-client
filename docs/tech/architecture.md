@@ -45,7 +45,7 @@ flowchart LR
      ─ serialize.ts:没改过的顶层块原样写回原文(连同块间空行);改过的块 → mdast → mdast-util-to-markdown(自定义处理器)
 ```
 
-- **不改语义、尽量不改字节**:原文切片挂在 `WeakMap<PMNode, BlockSource>` 上,节点对象不变就写回原文。所以打开 → 保存逐字节不变(CI 用 CommonMark 652 例 + Typora 语料做语义往返,冒烟测试做字节往返)。
+- **不改语义、尽量不改字节**:原文切片挂在 `WeakMap<PMNode, BlockSource>` 上,节点对象不变就写回原文。所以打开 → 保存逐字节不变(CI 单测做语义往返:CommonMark 规范 652 例(#173 跳过,原因见 `tests/unit/markdown.test.ts`)、GFM 扩展章节与脚注示例 26 例、Typora 语料;冒烟测试做字节往返)。
 - **新内容优先标准 Markdown**:提示块存 GitHub `> [!TIP]`,折叠块存 `<details>`,颜色存 `<span style>`,书签存 `<a data-tz-type="bookmark">`,表情存 Unicode 字符。
 - **Typora 兼容**:`typora-root-url`、`typora-copy-images-to`、`<img style="zoom:50%">`、`[TOC]`、`:smile:` 短码(装饰显示、原文保留)、编辑器根节点 `id="write"`(Typora 主题选择器)。
 - **序列化细节**:段落 / 标题末尾空格直接去掉(Markdown 本就忽略,避免写出 `&#x20;`);相邻同类列表换用不同标记符避免被合并。
@@ -125,7 +125,7 @@ flowchart LR
 | macos(macOS 15) | `swift test`、组装通用二进制 Typoza.app(内嵌辅助进程、图标、ad-hoc 签名)、冒烟自检、打 DMG | `Typoza.dmg` |
 | perf(Ubuntu,独立工作流) | 推 `perf` 分支触发:大文档分阶段剖析(Chromium 采样 + WebKit 计时) | `perf/perf.md` |
 
-- 每个任务把步骤日志与产物强推到 `ci/<任务名>` 孤儿分支,本机 `localClaude/ci.sh` 拉取查看(仓库私有、无 API 令牌)。
+- 每个任务把步骤日志与产物强推到 `ci/<任务名>` 孤儿分支,本机 `git fetch origin '+refs/heads/ci/*:refs/remotes/origin/ci/*'` 后用 `git show origin/ci/<任务名>:<文件>` 查看(仓库私有、无 API 令牌)。
 - 冒烟自检:以 `--smoke-out` 启动打包好的应用,写入截图场景文档 → 打开 → 双击表格里的图片 → 确认灯箱与图片加载 → 字节往返 → 经外壳调辅助进程取同步状态 → 截图并写 `smoke.json`。
 
 ## 7. 已知限制

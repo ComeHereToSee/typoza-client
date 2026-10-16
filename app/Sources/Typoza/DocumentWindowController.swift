@@ -81,7 +81,10 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
         webView = DropWebView(frame: .zero, configuration: config)
         isLaunchWindow = Self.windowsCreated == 0
         Self.windowsCreated += 1
+        // 开发者工具只在调试构建里开(对照表 V-18:发布版不提供)
+        #if DEBUG
         if #available(macOS 13.3, *) { webView.isInspectable = true }
+        #endif
         webView.allowsMagnification = false
         webView.setValue(false, forKey: "drawsBackground")
 
