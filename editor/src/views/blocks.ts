@@ -287,7 +287,7 @@ export function insertHtmlBlock(view: EditorView): boolean {
 export class HtmlInlineView implements NodeView {
   dom: HTMLElement
 
-  constructor(node: PMNode, env: EditorEnv) {
+  constructor(node: PMNode, view: EditorView, env: EditorEnv) {
     const html = node.attrs.html as string
     if (/^<!--[\s\S]*-->$/.test(html.trim())) {
       this.dom = h('span', { class: 'tz-html-inline tz-html-comment', title: html }, html)
@@ -297,6 +297,14 @@ export class HtmlInlineView implements NodeView {
     } else {
       this.dom = h('span', { class: 'tz-html-inline' })
       this.dom.append(sanitizeHtml(html, env))
+      // 行内 HTML 里的图片(如 <a><img></a>)同样双击放大
+      this.dom.addEventListener('dblclick', (e) => {
+        const img = (e.target as HTMLElement).closest('img')
+        if (img) {
+          e.preventDefault()
+          openImageLightbox(view, env, { element: img })
+        }
+      })
     }
   }
 
