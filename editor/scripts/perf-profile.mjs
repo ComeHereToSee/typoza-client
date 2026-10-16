@@ -4,7 +4,7 @@
 import { spawn } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { chromium } from '@playwright/test'
+import { chromium, webkit } from '@playwright/test'
 
 const out = process.argv[2]
 if (!out) throw new Error('需要输出目录参数')
@@ -77,7 +77,7 @@ await new Promise((resolve, reject) => {
   })
 })
 
-const report = { scaling: [], phases: {}, profiles: {} }
+const report = { scaling: [], scalingWebkit: [], phases: {}, profiles: {}, hotSource: {} }
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a)
 const browser = await chromium.launch()
 try {
@@ -98,7 +98,7 @@ try {
   }
 
   // 解析与打开都在页面里计时;size 档位用来看耗时随文档大小怎么增长(线性还是平方)
-  const measure = (size, path) =>
+  const measure = (page, size, path) =>
     page.evaluate(
       async ({ text, path }) => {
         const t0 = performance.now()
@@ -117,9 +117,24 @@ try {
       { text: bigMarkdown(size), path },
     )
   for (const kb of [256, 512, 1024, 2048, 5120]) {
-    const r = await measure(kb * 1024, `/demo/size-${kb}.md`)
+    const r = await measure(page, kb * 1024, `/demo/size-${kb}.md`)
     report.scaling.push({ kb, ...r })
     log('档位', kb, 'KB', JSON.stringify(r))
+  }
+  // 同样的档位在 WebKit(与应用同内核的 JavaScriptCore)上只计时,看是否超线性
+  const wk = await webkit.launch()
+  try {
+    const wpage = await wk.newPage({ viewport: { width: 1280, height: 860 } })
+    wpage.setDefaultTimeout(900_000)
+    await wpage.goto(`http://localhost:${PORT}/`)
+    await wpage.waitForSelector('html[data-ready="true"]', { timeout: 120_000 })
+    for (const kb of [128, 256, 512, 1024]) {
+      const r = await measure(wpage, kb * 1024, `/demo/wk-${kb}.md`)
+      report.scalingWebkit.push({ kb, ...r })
+      log('WebKit 档位', kb, 'KB', JSON.stringify(r))
+    }
+  } finally {
+    await wk.close()
   }
 
   const md = bigMarkdown(1024 * 1024)
@@ -173,6 +188,26 @@ try {
       return Math.round(performance.now() - t)
     }),
   )
+  // 解析阶段自耗时前 6 名的源码片段(打包文件不压缩,按行号截取),确认热点到底是哪个依赖里的函数
+  const sources = new Map()
+  for (const item of report.profiles['解析']?.self.slice(0, 6) ?? []) {
+    const m = /^(.*) (\/assets\/[^:]+):(\d+)$/.exec(item.fn)
+    if (!m) continue
+    const [, , url, lineText] = m
+    if (!sources.has(url)) sources.set(url, (await (await fetch(`http://localhost:${PORT}${url}`)).text()).split('\n'))
+    const lines = sources.get(url)
+    const line = Number(lineText)
+    // 往前找最近的模块注释或文件路径标记,便于认出所属依赖
+    let origin = ''
+    for (let i = line - 1; i >= 0 && i > line - 4000; i--) {
+      const hit = /^\/\/(?:#region)? ?((?:\.\.\/)*node_modules\/\S+|src\/\S+)/.exec(lines[i])
+      if (hit) {
+        origin = hit[1]
+        break
+      }
+    }
+    report.hotSource[item.fn] = { origin, code: lines.slice(Math.max(0, line - 3), line + 12).join('\n') }
+  }
 } finally {
   await browser.close()
   server.kill()
@@ -180,6 +215,10 @@ try {
 
 writeFileSync(join(out, 'perf.json'), JSON.stringify(report, null, 2))
 const lines = [`# 大文档性能剖析(Chromium,不压缩的生产构建)`, '', '## 规模与耗时', '', '```json', JSON.stringify(report.scaling, null, 2), '```', '', `剖析文档 ${report.bytes} 字节,${report.blocks} 个顶层块`, '', '```json', JSON.stringify(report.phases, null, 2), '```']
+lines.push('', '## WebKit 规模与耗时', '', '```json', JSON.stringify(report.scalingWebkit, null, 2), '```')
+for (const [fn, src] of Object.entries(report.hotSource)) {
+  lines.push('', `## 热点源码 · ${fn}`, '', `所属:${src.origin || '未识别'}`, '', '```js', src.code, '```')
+}
 for (const [name, p] of Object.entries(report.profiles)) {
   lines.push('', `## ${name} · 自耗时 Top`, '', '| 毫秒 | 函数 |', '|---|---|', ...p.self.map((x) => `| ${x.ms} | ${x.fn} |`))
   lines.push('', `## ${name} · 含子调用 Top`, '', '| 毫秒 | 函数 |', '|---|---|', ...p.total.slice(0, 25).map((x) => `| ${x.ms} | ${x.fn} |`))

@@ -1,0 +1,45 @@
+name: perf
+
+# 大文档性能剖析(诊断用,耗时长):只在推送 perf 分支时跑,不随 dev 的新推送取消。
+# 用法:git push -f origin HEAD:perf;结果在 ci/perf 分支的 perf/perf.md
+on:
+  push:
+    branches: [perf]
+  workflow_dispatch:
+
+permissions:
+  contents: write # ci/publish.sh 把日志与产物推到 ci/<job> 分支
+
+concurrency:
+  group: perf
+  cancel-in-progress: true
+
+env:
+  CI_OUT: ${{ github.workspace }}/ci-out
+
+jobs:
+  perf:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: editor
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: editor/package-lock.json
+      - name: npm ci
+        run: ../ci/step.sh npm-ci npm ci
+      - name: chromium
+        run: ../ci/step.sh chromium npx playwright install --with-deps chromium webkit
+      - name: profile
+        timeout-minutes: 40
+        run: ../ci/step.sh profile node scripts/perf-profile.mjs "$CI_OUT/perf"
+      - name: publish
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ../ci/publish.sh perf "${{ job.status }}"
+
