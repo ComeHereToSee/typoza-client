@@ -449,3 +449,8 @@ p > .tz-image:only-child { display: block; width: fit-content; margin: 4px auto;
 .tz-emoji { font-style: normal; }
 .tz-suggest-menu .tz-menu-icon { font-size: 17px; }
 
+
+/* 大文档视口裁剪(plugins/viewport.ts):离视口远的顶层块不排版;只在屏幕上生效,打印与导出不受影响 */
+@media screen {
+  .tz-editor-host.tz-vp .tz-vp-off { display: none !important; }
+}
