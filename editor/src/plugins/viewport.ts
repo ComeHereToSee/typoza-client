@@ -3,7 +3,7 @@
 // 每次按键与滚动只排版视口附近的一百来个块。只改样式表与外层容器,不碰 ProseMirror 管理的 DOM
 // (改了会被当成外部修改而重绘)。打印与导出不受影响:规则只在屏幕上、且挂在编辑器外层容器的类上。
 import type { Node as PMNode } from 'prosemirror-model'
-import { type EditorState, Plugin } from 'prosemirror-state'
+import { type EditorState, Plugin, Selection, TextSelection } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
 
 /** 顶层块达到这个数才启用(普通文档不受影响) */
@@ -25,8 +25,36 @@ function ruleFor(hiddenBefore: number, lastVisible: number): string {
   return `@media screen { ${parts.join(', ')} { display: none !important; } }`
 }
 
+const isMac = typeof navigator !== 'undefined' && /Mac|iP(hone|[oa]d)/.test(navigator.platform)
+
+/** ⌘↑ / ⌘↓(其它平台 Ctrl+Home / Ctrl+End)跳到文首 / 文末,带 ⇧ 时扩选;返回方向,不是这组键时为 0。 */
+function docEdgeKey(e: KeyboardEvent): -1 | 0 | 1 {
+  if (e.altKey) return 0
+  if (isMac) {
+    if (!e.metaKey || e.ctrlKey) return 0
+    return e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0
+  }
+  if (!e.ctrlKey || e.metaKey) return 0
+  return e.key === 'Home' ? -1 : e.key === 'End' ? 1 : 0
+}
+
 export function viewportPlugin(): Plugin {
-  return new Plugin({ view: (view) => new Viewport(view) })
+  return new Plugin({
+    view: (view) => new Viewport(view),
+    props: {
+      // 裁剪后被隐藏的块里放不进原生光标,文首 / 文末跳转由这里按文档位置处理
+      handleKeyDown(view, event) {
+        if (view.state.doc.childCount < VIEWPORT_MIN_BLOCKS) return false
+        const dir = docEdgeKey(event)
+        if (dir === 0) return false
+        const { doc, selection } = view.state
+        const edge = dir < 0 ? Selection.atStart(doc) : Selection.atEnd(doc)
+        const next = event.shiftKey ? TextSelection.between(selection.$anchor, edge.$head) : edge
+        view.dispatch(view.state.tr.setSelection(next).scrollIntoView())
+        return true
+      },
+    },
+  })
 }
 
 class Viewport {
