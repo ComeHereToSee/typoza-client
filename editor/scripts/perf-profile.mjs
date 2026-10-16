@@ -79,6 +79,40 @@ await new Promise((resolve, reject) => {
 
 const report = { scaling: [], scalingWebkit: [], phases: {}, profiles: {}, hotSource: {} }
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a)
+function writeReport() {
+  writeFileSync(join(out, 'perf.json'), JSON.stringify(report, null, 2))
+  const lines = [`# 大文档性能剖析(Chromium,不压缩的生产构建)`, '', '## 规模与耗时', '', '```json', JSON.stringify(report.scaling, null, 2), '```', '', `剖析文档 ${report.bytes} 字节,${report.blocks} 个顶层块`, '', '```json', JSON.stringify(report.phases, null, 2), '```']
+  lines.push('', '## WebKit 规模与耗时', '', '```json', JSON.stringify(report.scalingWebkit, null, 2), '```')
+  for (const [fn, src] of Object.entries(report.hotSource)) {
+    lines.push('', `## 热点源码 · ${fn}`, '', `所属:${src.origin || '未识别'}`, '', '```js', src.code, '```')
+  }
+  for (const [name, p] of Object.entries(report.profiles)) {
+    lines.push('', `## ${name} · 自耗时 Top`, '', '| 毫秒 | 函数 |', '|---|---|', ...p.self.map((x) => `| ${x.ms} | ${x.fn} |`))
+    lines.push('', `## ${name} · 含子调用 Top`, '', '| 毫秒 | 函数 |', '|---|---|', ...p.total.slice(0, 25).map((x) => `| ${x.ms} | ${x.fn} |`))
+  }
+  writeFileSync(join(out, 'perf.md'), `${lines.join('\n')}\n`)
+}
+
+// 解析与打开都在页面里计时;size 档位用来看耗时随文档大小怎么增长(线性还是平方)
+const measure = (page, size, path) =>
+  page.evaluate(
+    async ({ text, path }) => {
+      const t0 = performance.now()
+      const { doc } = window.typozaTest.parse(text, { inlineMath: true })
+      const parseMs = performance.now() - t0
+      window.typozaTest.host.files.set(path, { kind: 'file', data: text, mtime: Date.now() })
+      const t1 = performance.now()
+      await window.typozaTest.app.openFile(path, { replace: true })
+      await new Promise((r) => requestAnimationFrame(() => r()))
+      const openMs = performance.now() - t1
+      const t2 = performance.now()
+      await window.typozaTest.load('# 小文档\n\n一段话。\n')
+      const closeMs = performance.now() - t2
+      return { blocks: doc.childCount, parseMs: Math.round(parseMs), openMs: Math.round(openMs), closeMs: Math.round(closeMs) }
+    },
+    { text: bigMarkdown(size), path },
+  )
+
 const browser = await chromium.launch()
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 860 } })
@@ -97,46 +131,11 @@ try {
     return result
   }
 
-  // 解析与打开都在页面里计时;size 档位用来看耗时随文档大小怎么增长(线性还是平方)
-  const measure = (page, size, path) =>
-    page.evaluate(
-      async ({ text, path }) => {
-        const t0 = performance.now()
-        const { doc } = window.typozaTest.parse(text, { inlineMath: true })
-        const parseMs = performance.now() - t0
-        window.typozaTest.host.files.set(path, { kind: 'file', data: text, mtime: Date.now() })
-        const t1 = performance.now()
-        await window.typozaTest.app.openFile(path, { replace: true })
-        await new Promise((r) => requestAnimationFrame(() => r()))
-        const openMs = performance.now() - t1
-        const t2 = performance.now()
-        await window.typozaTest.load('# 小文档\n\n一段话。\n')
-        const closeMs = performance.now() - t2
-        return { blocks: doc.childCount, parseMs: Math.round(parseMs), openMs: Math.round(openMs), closeMs: Math.round(closeMs) }
-      },
-      { text: bigMarkdown(size), path },
-    )
   for (const kb of [256, 512, 1024, 2048, 5120]) {
     const r = await measure(page, kb * 1024, `/demo/size-${kb}.md`)
     report.scaling.push({ kb, ...r })
     log('档位', kb, 'KB', JSON.stringify(r))
   }
-  // 同样的档位在 WebKit(与应用同内核的 JavaScriptCore)上只计时,看是否超线性
-  const wk = await webkit.launch()
-  try {
-    const wpage = await wk.newPage({ viewport: { width: 1280, height: 860 } })
-    wpage.setDefaultTimeout(900_000)
-    await wpage.goto(`http://localhost:${PORT}/`)
-    await wpage.waitForSelector('html[data-ready="true"]', { timeout: 120_000 })
-    for (const kb of [128, 256, 512, 1024]) {
-      const r = await measure(wpage, kb * 1024, `/demo/wk-${kb}.md`)
-      report.scalingWebkit.push({ kb, ...r })
-      log('WebKit 档位', kb, 'KB', JSON.stringify(r))
-    }
-  } finally {
-    await wk.close()
-  }
-
   const md = bigMarkdown(1024 * 1024)
   report.bytes = Buffer.byteLength(md)
   await page.evaluate((text) => {
@@ -210,20 +209,37 @@ try {
   }
 } finally {
   await browser.close()
-  server.kill()
 }
 
-writeFileSync(join(out, 'perf.json'), JSON.stringify(report, null, 2))
-const lines = [`# 大文档性能剖析(Chromium,不压缩的生产构建)`, '', '## 规模与耗时', '', '```json', JSON.stringify(report.scaling, null, 2), '```', '', `剖析文档 ${report.bytes} 字节,${report.blocks} 个顶层块`, '', '```json', JSON.stringify(report.phases, null, 2), '```']
-lines.push('', '## WebKit 规模与耗时', '', '```json', JSON.stringify(report.scalingWebkit, null, 2), '```')
-for (const [fn, src] of Object.entries(report.hotSource)) {
-  lines.push('', `## 热点源码 · ${fn}`, '', `所属:${src.origin || '未识别'}`, '', '```js', src.code, '```')
+writeReport()
+
+// 同样的流程在 WebKit(与应用同内核的 JavaScriptCore)上只计时,看是否超线性;每档限时,超时就停在那一档
+{
+  const wk = await webkit.launch()
+  try {
+    const wpage = await wk.newPage({ viewport: { width: 1280, height: 860 } })
+    await wpage.goto(`http://localhost:${PORT}/`)
+    await wpage.waitForSelector('html[data-ready="true"]', { timeout: 120_000 })
+    for (const kb of [64, 128, 256, 512]) {
+      const started = Date.now()
+      const r = await Promise.race([
+        measure(wpage, kb * 1024, `/demo/wk-${kb}.md`),
+        new Promise((resolve) => setTimeout(() => resolve(null), 240_000)),
+      ])
+      if (!r) {
+        report.scalingWebkit.push({ kb, timeout: true, waitedMs: Date.now() - started })
+        log('WebKit 档位', kb, 'KB 超时')
+        break
+      }
+      report.scalingWebkit.push({ kb, ...r })
+      log('WebKit 档位', kb, 'KB', JSON.stringify(r))
+    }
+  } finally {
+    await wk.close()
+    server.kill()
+  }
 }
-for (const [name, p] of Object.entries(report.profiles)) {
-  lines.push('', `## ${name} · 自耗时 Top`, '', '| 毫秒 | 函数 |', '|---|---|', ...p.self.map((x) => `| ${x.ms} | ${x.fn} |`))
-  lines.push('', `## ${name} · 含子调用 Top`, '', '| 毫秒 | 函数 |', '|---|---|', ...p.total.slice(0, 25).map((x) => `| ${x.ms} | ${x.fn} |`))
-}
-writeFileSync(join(out, 'perf.md'), `${lines.join('\n')}\n`)
+writeReport()
 console.log(JSON.stringify(report.phases))
 // vite preview 由 npx 拉起,kill 只结束 npx,子进程会让本进程挂住;显式退出
 process.exit(0)
