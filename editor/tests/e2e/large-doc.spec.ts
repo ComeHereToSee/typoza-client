@@ -1,0 +1,42 @@
+import { expect, type Page, test } from '@playwright/test'
+import { loadDoc, markdown, modKey, openApp } from './helpers'
+
+// 大文档视口裁剪(plugins/viewport.ts):离视口远的顶层块不参与排版,光标所在块与视口附近的块照常显示、可编辑
+test.beforeEach(async ({ page }) => {
+  await openApp(page)
+})
+
+const BLOCKS = 3000
+const bigDoc = () => Array.from({ length: BLOCKS }, (_, i) => `第 ${i + 1} 段,用于测试大文档的视口裁剪。`).join('\n\n') + '\n'
+
+const displayOf = (page: Page, index: number) =>
+  page.evaluate((i) => {
+    const el = document.querySelector('.tz-editor')?.children[i]
+    return el ? getComputedStyle(el).display : 'missing'
+  }, index)
+
+test('远处的块不排版;跳到文末后可见并可输入;滚回开头仍可见', async ({ page }) => {
+  await page.evaluate((md) => window.typozaTest!.load(md, '/demo/大文档.md'), bigDoc())
+  await expect.poll(() => displayOf(page, 0)).toBe('block')
+  await expect.poll(() => displayOf(page, BLOCKS - 1)).toBe('none')
+
+  // 跳到文末:光标所在块进入窗口
+  // WebKit 里要真实点击聚焦,原生的光标移动键才生效
+  await page.locator('.tz-editor > p').first().click()
+  await page.keyboard.press((await modKey(page)) === 'Meta' ? 'Meta+ArrowDown' : 'Control+End')
+  await expect.poll(() => displayOf(page, BLOCKS - 1)).toBe('block')
+  await page.keyboard.type('尾')
+  await expect.poll(async () => (await markdown(page)).trimEnd().endsWith('裁剪。尾')).toBe(true)
+
+  // 滚回开头:按滚动位置重新定窗口
+  await page.evaluate(() => {
+    document.querySelector('.tz-scroll')!.scrollTop = 0
+  })
+  await expect.poll(() => displayOf(page, 0)).toBe('block')
+  await expect(page.locator('.tz-editor > p').first()).toBeInViewport()
+})
+
+test('小文档不启用裁剪', async ({ page }) => {
+  await loadDoc(page, '一\n\n二\n\n三\n')
+  expect(await page.evaluate(() => document.querySelector('.tz-editor-host')!.classList.contains('tz-vp'))).toBe(false)
+})

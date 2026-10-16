@@ -20,6 +20,7 @@ import { markdownMarkersPlugin } from '../plugins/markers'
 import { smartPunctuationRenderPlugin } from '../plugins/smart-punctuation'
 import { TABLE_KEYS, tableToolbarPlugin } from '../plugins/table'
 import { toolbarPlugin } from '../plugins/toolbar'
+import { viewportPlugin } from '../plugins/viewport'
 import { contextMenuPlugin } from '../plugins/contextmenu'
 import { displayPlugin } from '../plugins/display'
 import { mediaKeysPlugin } from '../plugins/media-keys'
@@ -152,6 +153,8 @@ export function buildPlugins(env: EditorEnv): Plugin[] {
     tocRefreshPlugin(),
     viewModesPlugin(),
     blockHandlePlugin(env),
+    // 大文档只排版视口附近的块(顶层块少时不启用)
+    viewportPlugin(),
     tableToolbarPlugin(),
     mathPlugin(env),
   ]

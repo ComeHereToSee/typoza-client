@@ -207,6 +207,7 @@ export class CodeBlockView implements NodeView {
     this.placeholder?.replaceWith(cm.dom)
     this.placeholder = null
     this.loadLanguage()
+    if (this.previewing) this.schedulePreview()
     return cm
   }
 
@@ -270,6 +271,8 @@ export class CodeBlockView implements NodeView {
   }
 
   private schedulePreview(): void {
+    // 图表、公式预览也等块接近视口(建好编辑器)时再画:隐藏的块里 Mermaid 量不到文字尺寸会画错,也省得一次画几百张
+    if (!this.cm) return
     clearTimeout(this.renderTimer)
     this.renderTimer = window.setTimeout(() => {
       const code = this.node.textContent
