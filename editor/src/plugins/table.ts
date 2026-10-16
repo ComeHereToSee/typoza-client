@@ -367,6 +367,11 @@ class TableToolbar {
       delete this.drop.dataset.dragging
       this.drop.hidden = true
       if (to === from) return
+      // prosemirror-tables 取行列时按当前选区找表格(pos 参数只管找表),先把光标放进被拖的行 / 列
+      const table = this.view.state.doc.nodeAt(hover.tablePos)
+      if (!table) return
+      const cellPos = hover.tablePos + 1 + TableMap.get(table).positionAt(kind === 'row' ? from : 0, kind === 'row' ? 0 : from, table)
+      this.view.dispatch(this.view.state.tr.setSelection(TextSelection.near(this.view.state.doc.resolve(cellPos + 1))))
       const options = { from, to, pos: hover.tablePos + 1 }
       const cmd = kind === 'row' ? moveTableRow(options) : moveTableColumn(options)
       cmd(this.view.state, this.view.dispatch)

@@ -19,8 +19,12 @@ export async function loadDoc(page: Page, markdown: string, path?: string): Prom
     },
     { md: markdown, p: path },
   )
-  // 程序化聚焦,不模拟点击:点在编辑区中心可能正好落在图片上,紧接着的点击会被 ProseMirror 当成双击
-  await page.evaluate(() => window.typozaTest!.app.view.focus())
+  // 用真实点击聚焦(WebKit 里程序化聚焦后,Home、⇧方向键等原生光标移动不生效);
+  // 点在右下角的底部留白上:点中心可能落在居中的图片上,紧接着点图片会被 ProseMirror 当成双击
+  const editor = page.locator('.tz-editor')
+  const box = await editor.boundingBox()
+  if (!box) throw new Error('编辑区不可见')
+  await editor.click({ position: { x: box.width - 2, y: box.height - 2 } })
   await page.keyboard.press((await modKey(page)) === 'Meta' ? 'Meta+ArrowDown' : 'Control+End')
 }
 
