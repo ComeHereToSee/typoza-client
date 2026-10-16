@@ -105,9 +105,9 @@ const measure = (page, size, path) =>
       await window.typozaTest.app.openFile(path, { replace: true })
       await new Promise((r) => requestAnimationFrame(() => r()))
       const openMs = performance.now() - t1
-      // 大文档分段载入:等全文载完
-      while (window.typozaTest.app.loading) await new Promise((r) => setTimeout(r, 20))
-      const loadedMs = performance.now() - t1
+      // 大文档分段载入:等全文载完(最多 3 分钟,载不完记为 -1,别让整个剖析挂住)
+      while (window.typozaTest.app.loading && performance.now() - t1 < 180_000) await new Promise((r) => setTimeout(r, 20))
+      const loadedMs = window.typozaTest.app.loading ? -1 : performance.now() - t1
       const t2 = performance.now()
       await window.typozaTest.load('# 小文档\n\n一段话。\n')
       const closeMs = performance.now() - t2
@@ -160,8 +160,8 @@ try {
       await window.typozaTest.app.openFile('/demo/big.md', { replace: true })
       await new Promise((r) => requestAnimationFrame(() => r()))
       const first = Math.round(performance.now() - t)
-      while (window.typozaTest.app.loading) await new Promise((r) => setTimeout(r, 20))
-      return { firstScreen: first, loaded: Math.round(performance.now() - t) }
+      while (window.typozaTest.app.loading && performance.now() - t < 180_000) await new Promise((r) => setTimeout(r, 20))
+      return { firstScreen: first, loaded: window.typozaTest.app.loading ? -1 : Math.round(performance.now() - t) }
     }),
   )
   report.phases.input = await profiled('连续输入', () =>
