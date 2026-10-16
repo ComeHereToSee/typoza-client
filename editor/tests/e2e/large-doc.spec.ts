@@ -49,7 +49,13 @@ test('大文档分段载入:先显示开头、载入中不可编辑;载完后全
   expect(first.blocks).toBeLessThan(total)
   await expect(page.locator('.tz-status-words')).toContainText('载入中')
   expect(await page.evaluate(() => window.typozaTest!.app.view.editable)).toBe(false)
-  await expect.poll(() => page.evaluate(() => window.typozaTest!.app.loading), { timeout: 20_000 }).toBe(false)
+  // 每秒记一次状态栏的载入进度,载不完时随断言带出(区分「慢」与「卡住」)
+  const samples: string[] = []
+  for (let i = 0; i < 40 && (await page.evaluate(() => window.typozaTest!.app.loading)); i++) {
+    samples.push(`${i}s:${await page.locator('.tz-status-words').textContent()}`)
+    await page.waitForTimeout(1000)
+  }
+  expect(await page.evaluate(() => window.typozaTest!.app.loading), samples.join(' ')).toBe(false)
   expect(await page.evaluate(() => window.typozaTest!.app.view.state.doc.childCount)).toBe(total)
   expect(await page.evaluate(() => window.typozaTest!.app.view.editable)).toBe(true)
   expect(await markdown(page)).toBe(md)
