@@ -188,7 +188,16 @@ enum MainMenu {
                 cmd("保留单换行符", "edit.preserveSingleNewline"),
             ]),
             submenu("替换", [
+                submenu("智能标点", [
+                    cmd("输入时转换", "edit.smartPunctuationInput"),
+                    cmd("渲染时转换", "edit.smartPunctuationRender"),
+                ]),
+                cmd("智能引号", "edit.smartQuotes"),
+                cmd("智能破折号", "edit.smartDashes"),
+                sep,
                 cmd("解析 Markdown 时允许并转化 Unicode 标点", "edit.unicodePunctuation"),
+                sep,
+                cmd("更多选项…", "edit.substitutionOptions"),
             ]),
             submenu("转换", [
                 cmd("大写", "text.uppercase"),

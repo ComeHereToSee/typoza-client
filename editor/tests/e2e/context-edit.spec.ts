@@ -153,6 +153,20 @@ test.describe('编辑菜单', () => {
     expect(await markdown(page)).toBe('》引用内容\n')
   })
 
+  test('替换 ▸ 智能标点、智能引号、智能破折号与偏好同一组设置;更多选项打开偏好 Markdown 页', async ({ page }) => {
+    const setting = (key: string) => page.evaluate((k) => window.typozaTest!.host.settings[k], key)
+    await loadDoc(page, '正文\n')
+    await runMenuCommand(page, 'edit.smartPunctuationRender')
+    await expect.poll(() => setting('smartPunctuationMode')).toBe('render')
+    await runMenuCommand(page, 'edit.smartPunctuationRender')
+    await expect.poll(() => setting('smartPunctuationMode')).toBe('off')
+    await runMenuCommand(page, 'edit.smartQuotes')
+    await expect.poll(() => setting('smartQuotes')).toBe(true)
+    await expect(page.locator('.tz-toast')).toContainText('智能标点当前已关闭')
+    await runMenuCommand(page, 'edit.substitutionOptions')
+    await expect(page.locator('.tz-settings-tab[data-page="Markdown"]')).toHaveClass(/is-active/)
+  })
+
   test('插入 HTML 块', async ({ page }) => {
     await loadDoc(page, '')
     await runMenuCommand(page, 'insert.htmlBlock')

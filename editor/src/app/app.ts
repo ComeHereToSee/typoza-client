@@ -1318,6 +1318,7 @@ export class App {
       updateSettings: (patch) => this.updateSettings(patch),
       markDirty: () => this.onDocChange(),
       toast: (message, error) => this.toast(message, error),
+      openPreferences: (page) => this.openPreferences(page),
     })
     // 斜杠 /icon、/cover(对照表 Z-11)
     cmd('page.icon', '页面图标', () => void this.pickIcon())

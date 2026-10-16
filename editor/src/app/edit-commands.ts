@@ -18,6 +18,8 @@ export interface EditCommandContext {
   /** 文档内容没变但要保存(换行符改了):标记为已修改,按自动保存规则写盘 */
   markDirty(): void
   toast(message: string, error?: boolean): void
+  /** 打开偏好设置的某一页 */
+  openPreferences(page: string): void
 }
 
 /** 去掉颜色、字体、字号等内联样式(对照表 E-07),保留结构与粗斜体等语义标签。 */
@@ -119,6 +121,31 @@ export function registerEditCommands(ctx: EditCommandContext): void {
   display('view.firstLineIndent', '首行缩进', 'firstLineIndent')
   display('view.showBrTag', '显示 <br/>', 'showBrTag')
   display('edit.preserveSingleNewline', '保留单换行符', 'preserveSingleNewline')
+
+  // E-32 ~ E-34、E-37:编辑 ▸ 替换,与偏好「Markdown ▸ 智能标点」同一组设置
+  for (const [id, mode, label] of [
+    ['edit.smartPunctuationInput', 'input', '智能标点:输入时转换'],
+    ['edit.smartPunctuationRender', 'render', '智能标点:渲染时转换'],
+  ] as const) {
+    cmd(id, label, async () => {
+      const on = ctx.settings().smartPunctuationMode !== mode
+      await ctx.updateSettings({ smartPunctuationMode: on ? mode : 'off' })
+      ctx.toast(`${label}:${onOff(on)}`)
+    })
+  }
+  for (const [id, key, label] of [
+    ['edit.smartQuotes', 'smartQuotes', '智能引号'],
+    ['edit.smartDashes', 'smartDashes', '智能破折号'],
+  ] as const) {
+    cmd(id, label, async () => {
+      const on = !ctx.settings()[key]
+      await ctx.updateSettings({ [key]: on })
+      // 智能标点整体关着时,单项开关不起作用,提示一下
+      const hint = on && ctx.settings().smartPunctuationMode === 'off' ? '(智能标点当前已关闭,需先选择输入时或渲染时转换)' : ''
+      ctx.toast(`${label}:${onOff(on)}${hint}`)
+    })
+  }
+  cmd('edit.substitutionOptions', '更多选项…', () => ctx.openPreferences('Markdown'))
 
   // E-36:只影响解析;改设置后 prefs-apply 按新规则重新解析当前文档(文件内容不变)
   cmd('edit.unicodePunctuation', '解析时转化 Unicode 标点', async () => {
