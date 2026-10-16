@@ -66,7 +66,16 @@ await new Promise((resolve, reject) => {
   const build = spawn('npx', ['vite', 'build', '--minify', 'false', '--outDir', 'dist-perf'], { stdio: 'inherit' })
   build.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`构建失败:${code}`))))
 })
-const server = spawn('npx', ['vite', 'preview', '--outDir', 'dist-perf', '--port', String(PORT), '--strictPort'], { stdio: ['ignore', 'pipe', 'inherit'] })
+// 单独成进程组:npx 拉起的 vite 子进程继承了标准错误,只杀 npx 时它还占着 CI 的 tee 管道,步骤会一直等到超时
+const server = spawn('npx', ['vite', 'preview', '--outDir', 'dist-perf', '--port', String(PORT), '--strictPort'], { stdio: ['ignore', 'pipe', 'inherit'], detached: true })
+const stopServer = () => {
+  try {
+    process.kill(-server.pid, 'SIGTERM')
+  } catch {
+    // 进程组已经退出
+  }
+}
+process.on('exit', stopServer)
 await new Promise((resolve, reject) => {
   const timer = setTimeout(() => reject(new Error('Vite 开发服务器 60 秒内没起来')), 60_000)
   server.stdout.on('data', (d) => {
@@ -225,7 +234,7 @@ writeReport()
     const wpage = await wk.newPage({ viewport: { width: 1280, height: 860 } })
     await wpage.goto(`http://localhost:${PORT}/`)
     await wpage.waitForSelector('html[data-ready="true"]', { timeout: 120_000 })
-    for (const kb of [64, 128, 256, 512]) {
+    for (const kb of [64, 128, 256, 512, 1024, 2048, 5120]) {
       const started = Date.now()
       const r = await Promise.race([
         measure(wpage, kb * 1024, `/demo/wk-${kb}.md`),
@@ -241,10 +250,10 @@ writeReport()
     }
   } finally {
     await wk.close()
-    server.kill()
+    stopServer()
   }
 }
 writeReport()
 console.log(JSON.stringify(report.phases))
-// vite preview 由 npx 拉起,kill 只结束 npx,子进程会让本进程挂住;显式退出
+// 显式退出:还有未结束的句柄时 node 不会自己退
 process.exit(0)
