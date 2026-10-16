@@ -164,7 +164,7 @@ class Viewport {
     this.update(view)
   }
 
-  update(view: EditorView): void {
+  update(view: EditorView, prev?: EditorState): void {
     const st = key.getState(view.state) ?? INACTIVE
     if (!st.active) {
       if (this.shown.count >= 0) this.deactivate()
@@ -173,7 +173,13 @@ class Viewport {
     const doc = view.state.doc
     if (st.from === this.shown.from && st.to === this.shown.to && doc.childCount === this.shown.count) return
     this.host.classList.add(HOST_CLASS)
-    if (this.heightsCount !== doc.childCount) this.rebuildHeights(doc)
+    if (this.heightsCount !== doc.childCount) {
+      // 只在文末追加了块(分段载入)时,沿用已有高度、只给新块估高
+      const appended =
+        prev && this.heightsCount === prev.doc.childCount && doc.childCount > prev.doc.childCount && prev.doc.content.findDiffStart(doc.content) === prev.doc.content.size
+      if (appended) this.appendHeights(doc)
+      else this.rebuildHeights(doc)
+    }
     this.host.style.paddingTop = `${Math.round(this.sum(0, st.from))}px`
     this.host.style.paddingBottom = `${Math.round(this.sum(st.to, this.heights.length))}px`
     this.shown = { from: st.from, to: st.to, count: doc.childCount }
@@ -226,6 +232,16 @@ class Viewport {
     doc.forEach((node, _offset, i) => {
       heights[i] = this.measured.get(node) ?? this.estimate(node, font, width)
     })
+    this.heights = heights
+    this.heightsCount = doc.childCount
+  }
+
+  private appendHeights(doc: PMNode): void {
+    const heights = new Float64Array(doc.childCount)
+    heights.set(this.heights)
+    const width = Math.max(200, this.view.dom.clientWidth || 700)
+    const font = Number.parseFloat(getComputedStyle(this.view.dom).fontSize) || 16
+    for (let i = this.heightsCount; i < doc.childCount; i++) heights[i] = this.estimate(doc.child(i), font, width)
     this.heights = heights
     this.heightsCount = doc.childCount
   }

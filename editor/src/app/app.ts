@@ -329,7 +329,11 @@ export class App {
     const step = () => {
       if (token !== this.loadToken) return
       try {
-        const blocks = chunks.nextBlocks()
+        // 每步在约 50ms 内多解析几段再一次追加:追加一次要走一遍全文的插件与视图更新,步数越少越快
+        const started = performance.now()
+        const blocks: PMNode[] = []
+        do blocks.push(...chunks.nextBlocks())
+        while (!chunks.done && performance.now() - started < 50)
         if (blocks.length) {
           const tr = this.view.state.tr.insert(this.view.state.doc.content.size, blocks)
           this.view.dispatch(tr.setMeta(UI_ONLY, true).setMeta('addToHistory', false))
