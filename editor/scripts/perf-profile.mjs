@@ -105,10 +105,13 @@ const measure = (page, size, path) =>
       await window.typozaTest.app.openFile(path, { replace: true })
       await new Promise((r) => requestAnimationFrame(() => r()))
       const openMs = performance.now() - t1
+      // 大文档分段载入:等全文载完
+      while (window.typozaTest.app.loading) await new Promise((r) => setTimeout(r, 20))
+      const loadedMs = performance.now() - t1
       const t2 = performance.now()
       await window.typozaTest.load('# 小文档\n\n一段话。\n')
       const closeMs = performance.now() - t2
-      return { blocks: doc.childCount, parseMs: Math.round(parseMs), openMs: Math.round(openMs), closeMs: Math.round(closeMs) }
+      return { blocks: doc.childCount, parseMs: Math.round(parseMs), openMs: Math.round(openMs), loadedMs: Math.round(loadedMs), closeMs: Math.round(closeMs) }
     },
     { text: bigMarkdown(size), path },
   )
@@ -156,7 +159,9 @@ try {
       const t = performance.now()
       await window.typozaTest.app.openFile('/demo/big.md', { replace: true })
       await new Promise((r) => requestAnimationFrame(() => r()))
-      return Math.round(performance.now() - t)
+      const first = Math.round(performance.now() - t)
+      while (window.typozaTest.app.loading) await new Promise((r) => setTimeout(r, 20))
+      return { firstScreen: first, loaded: Math.round(performance.now() - t) }
     }),
   )
   report.phases.input = await profiled('连续输入', () =>
