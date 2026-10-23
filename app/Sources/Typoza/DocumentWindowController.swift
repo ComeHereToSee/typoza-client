@@ -157,7 +157,15 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
         webView.callAsyncJavaScript("return await window.typoza.prepareClose(reason)", arguments: ["reason": reason], in: nil, in: .page) { result in
             switch result {
             case .success(let value): completion((value as? Bool) ?? true)
-            case .failure: completion(true)
+            case .failure(let error):
+                // 网页没能回答(脚本出错):不能当作「可以关」,未保存的内容会丢,问用户
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = "无法确认文档是否已保存"
+                alert.informativeText = "\(error.localizedDescription)\n仍要关闭的话,未保存的修改会丢失。"
+                alert.addButton(withTitle: "取消")
+                alert.addButton(withTitle: "仍要关闭")
+                completion(alert.runModal() == .alertSecondButtonReturn)
             }
         }
     }
@@ -499,7 +507,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, WKNa
             EmbedPolicy.check(url) { result in
                 DispatchQueue.main.async { reply(result.rawValue, nil) }
             }
-        case "net.download":
+        case "net.downloadNew":
             download(params, reply: reply)
         case "system.openInPreview":
             openInPreview(params, reply: reply)

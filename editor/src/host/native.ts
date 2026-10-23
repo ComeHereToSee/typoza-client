@@ -117,7 +117,7 @@ export async function createNativeHost(): Promise<{ host: Host; info: AppInfo }>
     copyRegionAsImage: (rect) => call('clipboard.snapshot', { ...rect }),
     nativePaste: () => call('edit.paste'),
     checkEmbed: (url) => call('net.checkEmbed', { url }),
-    download: (url, to) => call('net.download', { url, to }),
+    download: (url, to) => call('net.downloadNew', { url, to }),
     openInPreview: (path) => call('system.openInPreview', { path }),
 
     on<K extends keyof HostEvents>(event: K, handler: (payload: HostEvents[K]) => void) {
