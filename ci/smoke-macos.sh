@@ -17,7 +17,7 @@ if [ "$status" -ne 0 ]; then
     ls -lt "$d" 2>/dev/null | head -5
     find "$d" -name 'Typoza*' -mmin -15 -exec cp {} "$out/crash/" \; 2>/dev/null || true
   done
-  for f in "$out"/crash/*; do [ -f "$f" ] && head -c 20000 "$f"; done
+  for f in "$out"/crash/*; do [ -f "$f" ] && head -c 400000 "$f"; done
   exit "$status"
 fi
 python3 - "$out/smoke.json" "$start" "$end" "$(dirname "$0")/menu-keys.json" <<'PY'
