@@ -859,6 +859,7 @@ extension AppDelegate {
 
         func next(_ i: Int) {
             guard i < steps.count else { return completion(checks) }
+            FileHandle.standardError.write(Data("冒烟 外壳第 \(i + 1) / \(steps.count) 项\n".utf8))
             let step = steps[i]
             step { results in
                 results.forEach { checks[$0.key] = $0.value }
