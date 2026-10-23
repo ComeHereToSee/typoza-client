@@ -172,7 +172,7 @@ const EXPORTS: [string, string][] = [
   ['textile', 'textile'],
   ['opml', 'opml'],
 ]
-/** 纯文本产物:读回核对正文在里面(RTF 把中文写成 \\uNNNN 转义,只核对文件头) */
+/** 纯文本产物:读回核对正文在里面(RTF 把中文写成 \uNNNN 转义,只核对文件头) */
 const TEXT_EXPORTS = new Set(['html', 'html-plain', 'latex', 'mediawiki', 'rst', 'textile', 'opml'])
 
 /**

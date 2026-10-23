@@ -574,8 +574,10 @@ extension AppDelegate {
         try? settings.merge(["recentFolders": savedFolders])
 
         // V-15 保持窗口在最前端:菜单命令切换当前窗口的层级,再切回
+        // 菜单命令作用于当前窗口:先把应用调到前台、等主窗口真成为当前窗口(导出等步骤之后系统可能把焦点给了别处)
+        NSApp.activate(ignoringOtherApps: true)
         main.window?.makeKeyAndOrderFront(nil)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        waitUntil(5, { NSApp.keyWindow === main.window }) { _ in
             command("native.alwaysOnTop")
             checks["alwaysOnTop"] = main.window?.level == .floating
             command("native.alwaysOnTop")
@@ -686,8 +688,9 @@ extension AppDelegate {
         // F-02 新建标签页:当前窗口的标签多一个空白文档;测完关掉
         steps.append { done in
             guard let parent = main.window else { return done(["newTab": false]) }
+            NSApp.activate(ignoringOtherApps: true)
             parent.makeKeyAndOrderFront(nil)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            self.waitUntil(5, { NSApp.keyWindow === parent }) { _ in
                 let before = parent.tabbedWindows?.count ?? 1
                 command("native.newTab")
                 guard let created = self.windows.last, created !== main else { return done(["newTab": false]) }
@@ -742,6 +745,7 @@ extension AppDelegate {
             self.open(path: file, isDir: false, newWindow: true)
             self.waitUntil(15, { self.windows.contains { $0.isShowing(file) && $0.isLoaded } }) { opened in
                 guard opened, let w = self.windows.first(where: { $0.isShowing(file) }), let window = w.window else { return fail() }
+                NSApp.activate(ignoringOtherApps: true)
                 window.makeKeyAndOrderFront(nil)
                 _ = window.makeFirstResponder(w.webView)
                 // 只聚焦,光标全用真按键移动(程序里直接设 DOM 选区时编辑器未必跟上)
