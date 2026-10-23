@@ -964,7 +964,7 @@ extension AppDelegate {
             self.bringToFront(main.window) { _ in
                 let preview: Process
                 do { preview = try QuickLookPreview.show(file) } catch { return done(["quickLookFront": false]) }
-                let isPreview = { (owner: Self.WindowOwner) in owner.pid == preview.processIdentifier || ["qlmanage", "QuickLookUIService"].contains(owner.name) }
+                let isPreview = { (owner: WindowOwner) in owner.pid == preview.processIdentifier || ["qlmanage", "QuickLookUIService"].contains(owner.name) }
                 self.waitUntil(10, {
                     let owners = Self.windowOwnersFrontToBack()
                     guard let ql = owners.firstIndex(where: isPreview) else { return false }
