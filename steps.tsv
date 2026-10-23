@@ -1,0 +1,7 @@
+deps	0	0
+vet	0	11
+test	0	19
+govulncheck	0	6
+gosec	0	48
+build-arm64	0	9
+build-amd64	0	10
