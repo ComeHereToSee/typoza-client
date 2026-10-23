@@ -799,7 +799,8 @@ extension AppDelegate {
 
         func next(_ i: Int) {
             guard i < steps.count else { return completion(checks) }
-            steps[i] { results in
+            let step = steps[i]
+            step { results in
                 results.forEach { checks[$0.key] = $0.value }
                 DispatchQueue.main.async { next(i + 1) }
             }

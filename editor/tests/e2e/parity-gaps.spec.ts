@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { loadDoc, markdown, openApp } from './helpers'
 import { contextMenuAt, hostCalls, runMenuCommand } from './media-helpers'
 
-// 对照表「实现」行里此前没有用例为证的几项:X-15、X-60、C-10、C-13、C-14、P-11、P-13、P-17、P-23、M-12,以及 HTML 块里的图片双击放大
+// 对照表「实现」行里此前没有用例为证、或补实现后要验证的几项:X-15、X-60、C-10、C-13、C-14、P-11、P-13、P-17、P-23、P-30、M-12、M-20、M-21、S-01、PF-02、E-44,以及 HTML 块里的图片双击放大
 test.beforeEach(async ({ page }) => {
   await openApp(page)
 })
@@ -27,31 +27,42 @@ test('X-60 段落只有一张图时居中,和文字同段时不居中;补上文�
   // id.svg 宽 400,比正文窄,看得出是否居中
   await loadDoc(page, '![标识](assets/id.svg)\n\n前面的字 ![标识](assets/id.svg)\n')
   const paras = page.locator('.tz-editor > p')
-  const offset = (i: number) =>
+  const layout = (i: number) =>
     paras.nth(i).evaluate((p) => {
       const img = p.querySelector<HTMLElement>('.tz-image')!
       const a = p.getBoundingClientRect()
       const b = img.getBoundingClientRect()
-      return { center: Math.abs(a.left + a.width / 2 - (b.left + b.width / 2)), narrower: b.width > 0 && b.width < a.width - 40 }
+      const css = getComputedStyle(img)
+      return {
+        center: Math.abs(a.left + a.width / 2 - (b.left + b.width / 2)),
+        narrower: b.width > 0 && b.width < a.width - 40,
+        display: css.display,
+        marginLeft: parseFloat(css.marginLeft),
+      }
     })
-  await expect.poll(async () => (await offset(0)).narrower, { timeout: 5000 }).toBe(true)
+  await expect.poll(async () => (await layout(0)).narrower, { timeout: 5000 }).toBe(true)
   await expect(paras.nth(0)).toHaveClass(/tz-image-only/)
   await expect(paras.nth(1)).not.toHaveClass(/tz-image-only/)
-  expect((await offset(0)).center).toBeLessThan(2)
-  expect((await offset(1)).center).toBeGreaterThan(20)
+  const solo = await layout(0)
+  expect(solo.center).toBeLessThan(2)
+  expect(solo.display).toBe('block')
+  expect(solo.marginLeft).toBeGreaterThan(20)
+  // 和文字同段:照常行内排在文字后面
+  expect(await layout(1)).toMatchObject({ display: 'inline-block', marginLeft: 0 })
   // 在第一段图片后补字:不再是单图段落
   await page.evaluate(() => {
     const view = window.typozaTest!.app.view
     view.dispatch(view.state.tr.insertText('说明', 2))
   })
   await expect(paras.nth(0)).not.toHaveClass(/tz-image-only/)
-  expect((await offset(0)).center).toBeGreaterThan(20)
+  expect(await layout(0)).toMatchObject({ display: 'inline-block', marginLeft: 0 })
 })
 
 test.describe('C-10 右键图片:在浏览器 / 默认应用中打开', () => {
   test('网络图片:在浏览器中打开图片', async ({ page }) => {
     await loadDoc(page, '![远程](https://img.example.com/pic.png)\n')
-    await page.locator('.tz-editor .tz-image img').click({ button: 'right' })
+    // 测试环境连不上这个网址:图片加载失败后 img 隐藏,右键点占位框
+    await page.locator('.tz-editor .tz-image').click({ button: 'right' })
     await expect(page.locator(menuItem('ctx.image.open'))).toHaveCount(0)
     await page.locator(menuItem('ctx.image.browser')).click()
     await expect.poll(() => hostCalls(page, 'openExternal')).toContainEqual(['https://img.example.com/pic.png'])
@@ -175,4 +186,70 @@ test('P-23 代码工具 ▸ 复制代码块内容;右上角【复制代码】按
   })
   await page.locator('.tz-editor .tz-code-block .tz-code-copy').click()
   await expect.poll(clipboard).toBe('const a = 1\nconst b = 2')
+})
+
+test('P-30 任务状态 ▸ 标记为已完成 / 标记为未完成', async ({ page }) => {
+  await loadDoc(page, '- [ ] 待办一\n')
+  await runMenuCommand(page, 'block.markDone')
+  await expect.poll(() => markdown(page)).toBe('- [x] 待办一\n')
+  // 已完成再标记已完成:不变
+  await runMenuCommand(page, 'block.markDone')
+  await expect.poll(() => markdown(page)).toBe('- [x] 待办一\n')
+  await runMenuCommand(page, 'block.markUndone')
+  await expect.poll(() => markdown(page)).toBe('- [ ] 待办一\n')
+})
+
+test('M-20 / M-21 复制图片后的地址与插入图片同一规则:「为相对路径添加 ./」时加 ./,文档文件夹外写 ../', async ({ page }) => {
+  await page.evaluate(() => window.typozaTest!.app.updateSettings({ imageRelativeDotSlash: true }))
+  await loadDoc(page, '![标识](assets/id.svg)\n')
+  await page.locator('.tz-editor .tz-image img').click()
+  await page.evaluate(() => window.typozaTest!.host.dialogQueue.push(['/demo/out']))
+  await runMenuCommand(page, 'image.copyTo')
+  await expect.poll(() => markdown(page)).toBe('![标识](./out/id.svg)\n')
+  await page.locator('.tz-editor .tz-image img').click()
+  await page.evaluate(() => window.typozaTest!.host.dialogQueue.push(['/其他']))
+  await runMenuCommand(page, 'image.copyTo')
+  await expect.poll(() => markdown(page)).toBe('![标识](../其他/id.svg)\n')
+})
+
+test('S-01 / PF-02 关掉「允许折叠和展开侧边栏的大纲视图」当场生效:箭头与折叠按钮消失,再打开恢复', async ({ page }) => {
+  await loadDoc(page, '# 甲\n\n## 甲一\n\n# 乙\n')
+  await page.evaluate(async () => {
+    const t = window.typozaTest!
+    await t.app.updateSettings({ sidebarVisible: true })
+    await (t.app as unknown as { sidebar: { setTab(tab: string): Promise<void> } }).sidebar.setTab('outline')
+  })
+  const fold = page.locator('.tz-outline button[name=collapseAll]')
+  const arrows = page.locator('.tz-outline-twisty', { hasText: '▾' })
+  await expect(fold).toHaveCount(1)
+  await expect(arrows).toHaveCount(1)
+  await page.evaluate(() => window.typozaTest!.app.updateSettings({ outlineCollapsible: false }))
+  await expect(fold).toHaveCount(0)
+  await expect(arrows).toHaveCount(0)
+  await expect(page.locator('.tz-outline-item')).toHaveCount(3)
+  await page.evaluate(() => window.typozaTest!.app.updateSettings({ outlineCollapsible: true }))
+  await expect(fold).toHaveCount(1)
+})
+
+test('E-44 替换下一个(三处匹配):替换第一处后选中第二处,不跳过', async ({ page }) => {
+  await loadDoc(page, '苹果一\n\n苹果二\n\n苹果三\n')
+  await runMenuCommand(page, 'find.replace')
+  const inputs = page.locator('.tz-find-input')
+  const count = page.locator('.tz-find-count')
+  const selected = () =>
+    page.evaluate(() => {
+      const { state } = window.typozaTest!.app.view
+      return { from: state.selection.from, text: state.doc.textBetween(state.selection.from, state.selection.to) }
+    })
+  await inputs.first().fill('苹果')
+  await expect(count).toHaveText('1/3')
+  await inputs.nth(1).fill('梨')
+  await runMenuCommand(page, 'find.replaceNext')
+  await expect.poll(() => markdown(page)).toBe('梨一\n\n苹果二\n\n苹果三\n')
+  await expect(count).toHaveText('1/2')
+  // 第一段成了「梨一」(段长 4),第二段的「苹果」从位置 5 起
+  await expect.poll(selected).toEqual({ from: 5, text: '苹果' })
+  await runMenuCommand(page, 'find.replaceNext')
+  await expect.poll(() => markdown(page)).toBe('梨一\n\n梨二\n\n苹果三\n')
+  await expect.poll(selected).toEqual({ from: 9, text: '苹果' })
 })

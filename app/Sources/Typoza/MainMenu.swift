@@ -281,7 +281,11 @@ enum MainMenu {
             cmd("有序列表", "block.numbered", "o", [.command, .option]),
             cmd("无序列表", "block.bullet", "u", [.command, .option]),
             cmd("任务列表", "block.todo", "x", [.command, .option]),
-            cmd("切换任务状态", "block.toggleCheck"),
+            submenu("任务状态", [
+                cmd("切换任务状态", "block.toggleCheck"),
+                cmd("标记为已完成", "block.markDone"),
+                cmd("标记为未完成", "block.markUndone"),
+            ]),
             cmd("增加缩进", "block.indent"),
             cmd("减少缩进", "block.outdent"),
             sep,
