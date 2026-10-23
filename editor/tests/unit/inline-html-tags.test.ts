@@ -35,7 +35,8 @@ describe('段落里的成对行内 HTML 标签', () => {
   it('font color 与带字号的 span:保留属性渲染,开标签原文写回', () => {
     expect(html('<font color="red">红字</font>')).toBe('<font color="red">红字</font>')
     expect(edited('<font color="red">红字</font>')).toBe('<font color="red">红字</font>')
-    expect(html('<span style="font-size:20px">大字</span>')).toBe('<span style="font-size:20px">大字</span>')
+    // jsdom 会把 style 规整成「font-size: 20px;」
+    expect(html('<span style="font-size:20px">大字</span>')).toMatch(/^<span style="font-size: ?20px;?">大字<\/span>$/)
     expect(edited('<span style="font-size:20px">大字</span>')).toBe('<span style="font-size:20px">大字</span>')
   })
 

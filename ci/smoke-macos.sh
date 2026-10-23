@@ -6,8 +6,17 @@ app="${1:?需要 .app 路径}"
 out="${2:?需要输出目录}"
 mkdir -p "$out"
 start=$(python3 -c 'import time; print(time.time())')
-perl -e 'alarm shift; exec @ARGV' 300 "$app/Contents/MacOS/Typoza" --smoke-out "$out"
+status=0
+perl -e 'alarm shift; exec @ARGV' 300 "$app/Contents/MacOS/Typoza" --smoke-out "$out" || status=$?
 end=$(python3 -c 'import time; print(time.time())')
+if [ "$status" -ne 0 ]; then
+  # 崩溃时把系统生成的崩溃报告带回来(调用栈),否则只看得到「Trace/BPT trap」
+  sleep 5
+  mkdir -p "$out/crash"
+  find "$HOME/Library/Logs/DiagnosticReports" -name 'Typoza*' -mmin -15 -exec cp {} "$out/crash/" \; 2>/dev/null || true
+  for f in "$out"/crash/*; do [ -f "$f" ] && head -c 20000 "$f"; done
+  exit "$status"
+fi
 python3 - "$out/smoke.json" "$start" "$end" "$(dirname "$0")/menu-keys.json" <<'PY'
 import json, sys
 path, start, end, expected_path = sys.argv[1], float(sys.argv[2]), float(sys.argv[3]), sys.argv[4]
