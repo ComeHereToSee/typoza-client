@@ -1,7 +1,7 @@
 // 打包产物冒烟自检(macOS CI 上以 --smoke-out 启动应用时由外壳调用):
 // 在临时目录写一篇带图片 / 表格 / 动图的文档 → 打开 → 双击表格里的图片 → 确认灯箱打开且图片真的加载出来;
 // 再走一遍真实的导出 / 导入(外壳离屏渲染与 Pandoc)、指定编码重新打开、拷贝图片。
-import { NodeSelection, TextSelection } from 'prosemirror-state'
+import { EditorState, NodeSelection, TextSelection, type Transaction } from 'prosemirror-state'
 import type { App } from './app/app'
 import { createEditorState } from './core/editor'
 import { parseMarkdown, parseTimings } from './core/markdown/parse'
@@ -102,6 +102,7 @@ export async function runSmoke(app: App, bootTimings: Record<string, number> = {
     timings.bigInputDispatchP95Ms = Math.round(percentile(dispatchSamples, 95) * 10) / 10
     timings.bigInputP95Ms = Math.round(percentile(samples, 95) * 10) / 10
     timings.bigInputMaxMs = Math.round(Math.max(...samples) * 10) / 10
+    inputBreakdown(app, timings)
     t = performance.now()
     checks.bigSaved = await app.save()
     timings.bigSaveMs = Math.round(performance.now() - t)
@@ -231,4 +232,78 @@ async function encodingCheck(app: App, dir: string, checks: Record<string, boole
   await app.save()
   const back = await host.readText(path, 'big5')
   checks.encodingSaved = back.text.includes('資料內容追加')
+}
+
+/**
+ * 诊断:大文档里每次输入花在哪(插件 apply / appendTransaction / 装饰 / 插件视图更新 / 视图更新 / 其余的应用回调),
+ * 连续 30 次累计,取最大的 15 项写进 timings(input · 开头)。插件按 core/editor.ts buildPlugins 的顺序编号;装饰在视图更新里算,与视图项有重叠。
+ */
+function inputBreakdown(app: App, timings: Record<string, number>): void {
+  const view = app.view
+  const totals = new Map<string, number>()
+  const add = (k: string, ms: number) => totals.set(k, (totals.get(k) ?? 0) + ms)
+  function timed<A extends unknown[], R>(label: string, fn: (...a: A) => R): (...a: A) => R {
+    return function (this: unknown, ...a: A): R {
+      const t = performance.now()
+      try {
+        return fn.apply(this, a)
+      } finally {
+        add(label, performance.now() - t)
+      }
+    }
+  }
+  const restore: (() => void)[] = []
+  view.state.plugins.forEach((p, i) => {
+    const label = `${i} ${(p as unknown as { key: string }).key.replace(/\$\d*$/, '')}`
+    const spec = p.spec as unknown as { state?: { apply: (...a: unknown[]) => unknown }; appendTransaction?: (...a: unknown[]) => unknown }
+    if (spec.state) {
+      const orig = spec.state.apply
+      spec.state.apply = timed(`apply ${label}`, orig)
+      restore.push(() => (spec.state!.apply = orig))
+    }
+    if (spec.appendTransaction) {
+      const orig = spec.appendTransaction
+      spec.appendTransaction = timed(`append ${label}`, orig)
+      restore.push(() => (spec.appendTransaction = orig))
+    }
+    const props = p.props as unknown as Record<string, unknown>
+    if (typeof props.decorations === 'function') {
+      const orig = props.decorations as (...a: unknown[]) => unknown
+      props.decorations = timed(`deco ${label}`, orig)
+      restore.push(() => (props.decorations = orig))
+    }
+  })
+  // 状态字段在建状态时绑定 apply:换一份同样插件的新状态计时才生效;插件视图随之重建,所以之后再包
+  view.updateState(EditorState.create({ doc: view.state.doc, selection: view.state.selection, plugins: view.state.plugins }))
+  const pluginViews = (view as unknown as { pluginViews: { update?: (...a: unknown[]) => void }[] }).pluginViews
+  pluginViews.forEach((pv, i) => {
+    if (!pv.update) return
+    const orig = pv.update
+    pv.update = timed(`view#${i}`, orig)
+    restore.push(() => (pv.update = orig))
+  })
+  const origUpdate = view.updateState
+  view.updateState = timed('视图 updateState(含装饰与插件视图)', origUpdate.bind(view))
+  restore.push(() => (view.updateState = origUpdate))
+  const origApply = EditorState.prototype.apply
+  EditorState.prototype.apply = timed('state.apply(含各插件)', origApply as (tr: Transaction) => EditorState)
+  restore.push(() => (EditorState.prototype.apply = origApply))
+  let total = 0
+  try {
+    for (let i = 0; i < 30; i++) {
+      const t = performance.now()
+      view.dispatch(view.state.tr.insertText('诊'))
+      total += performance.now() - t
+    }
+  } finally {
+    restore.forEach((r) => r())
+  }
+  timings['input · 合计 30 次'] = Math.round(total * 10) / 10
+  // dispatchTransaction 里 apply 与 updateState 之外的部分 = 应用回调(onDocChange / onUpdate)
+  const inState = (totals.get('state.apply(含各插件)') ?? 0) + (totals.get('视图 updateState(含装饰与插件视图)') ?? 0)
+  totals.set('应用回调(onDocChange 与 onUpdate)', total - inState)
+  ;[...totals.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 15)
+    .forEach(([k, v]) => (timings[`input · ${k}`] = Math.round(v * 10) / 10))
 }
