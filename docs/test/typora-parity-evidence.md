@@ -10,14 +10,14 @@
   - 少数用例在分组里,标题写成 `分组 › 用例`。
   - `冒烟 › checks.<名字>`:macOS CI 启动真应用后,网页一侧的自检项(`editor/src/smoke.ts`)。
   - `冒烟 › nativeChecks.<名字>`:同一次启动里外壳一侧的自检项(`app/Sources/Typoza/AppDelegate.swift`)。
-  - `冒烟 › 菜单键位「<菜单项>」`:CI 逐项核对菜单键位(`ci/menu-keys.json`,94 项),只证明键位对。
+  - `冒烟 › 菜单键位「<菜单项>」`:CI 逐项核对菜单键位(`ci/menu-keys.json`,99 项),只证明键位对。
 - **判定**(四选一):
   - 「有」:用例断言了这一行的主要行为。说明列里个别次要细节(某条提示文案、某个边界)没断言时,在判定后括注,不降级。
   - 「部分」:主要行为只覆盖了一部分,或剩下的部分要在真机上确认(写「真机待确认:…」);判定格写明缺什么。
   - 「无」:找不到用例。
   - 「系统」:macOS 自带的能力,应用只放了标准菜单项;证据格写明依据。
 - **运行情况**(2026-10-23 CI,dev 6f0724b):网页端 E2E 474 条通过(只在 macOS 上有意义的 ⌘E 用例在 Linux 上跳过 1 条)、单测全过;macOS 真应用冒烟:网页侧自检全过(含 13 种导出格式、docx 导入、Big5 重开保存、拷贝图片),外壳侧自检全过(含系统标准菜单项、关于面板),菜单键位期望的 99 项全对且无重复项,启动选项四种冷启动全对。
-- **统计**:「实现」313 行:有 288、部分 12、无 1、系统 12。「系统」行另有外壳自检核对标准菜单项的动作与系统菜单接线(`nativeChecks.standardMenus`)。
+- **统计**:「实现」313 行:有 288、部分 13、无 0、系统 12。「系统」行另有外壳自检核对标准菜单项的动作与系统菜单接线(`nativeChecks.standardMenus`)。
 
 ## 二、逐行证据
 
@@ -26,7 +26,7 @@
 | 编号 | 功能 | 证据 | 判定 |
 |---|---|---|---|
 | A-01 | 关于 Typoza | 依据:`app/Sources/Typoza/MainMenu.swift` 应用菜单「关于 Typoza」用 macOS 标准关于面板(显示应用版本号);说明列的鸣谢入口在帮助菜单,见 H-07;`冒烟 › nativeChecks.standardMenus`;`冒烟 › nativeChecks.aboutPanel` | 系统 |
-| A-03 | 偏好设置 ⌘, | `editor/tests/e2e/preferences.spec.ts › 页签齐全;编辑器页关闭打字机 / 专注模式;通用页重置警告提示`;`冒烟 › 菜单键位「设置…」`(系统把「偏好设置…」改名为「设置…」) | 有(⌘, 不在菜单键位清单里,键位没核对) |
+| A-03 | 偏好设置 ⌘, | `editor/tests/e2e/preferences.spec.ts › 页签齐全;编辑器页关闭打字机 / 专注模式;通用页重置警告提示`;`冒烟 › 菜单键位「设置…」`(系统把「偏好设置…」改名为「设置…」) | 有 |
 | A-04 | 检查更新 | `app/Tests/TypozaKitTests/FilesTests.swift › testVersionComparison`;`app/Tests/TypozaKitTests/FilesTests.swift › testParseUpdateFeed`;`app/Tests/TypozaKitTests/FilesTests.swift › testUpdateCheckOutcomes`(未配置、已是最新、有新版本、服务出错四种结果与按钮) | 有(弹窗本身未自动化;接入更新服务后用真实更新源再看一次) |
 | A-05 | 服务 | 依据:应用菜单「服务」子菜单交给系统填充(`MainMenu.swift` 放菜单项,`AppDelegate.swift` 设为系统服务菜单);`冒烟 › nativeChecks.standardMenus` | 系统 |
 | A-06 | 隐藏 Typoza / 隐藏其他 / 全部显示 | 依据:`MainMenu.swift` 应用菜单三项用 macOS 标准动作,键位 ⌘H、⌥⌘H;`冒烟 › nativeChecks.standardMenus`;`冒烟 › 菜单键位「隐藏 Typoza」`;`冒烟 › 菜单键位「隐藏其他」` | 系统 |
@@ -115,7 +115,7 @@
 | E-43 | 查找和替换… ⌥⌘F | `editor/tests/e2e/context-edit.spec.ts › 限「选中部分」全部替换`;`editor/tests/e2e/links-history.spec.ts › 全部替换后一次 ⌘Z 撤回`;`editor/tests/unit/media-tools.test.ts › 限「选中部分」:只保留完全落在范围内的匹配`;`冒烟 › 菜单键位「查找和替换…」` | 有(没选中时的提示「先在正文里选中范围」没测) |
 | E-44 | 替换下一个 ⌥⌘E | `editor/tests/e2e/parity-p1.spec.ts › E-44 替换下一个:只替换当前一处并选中剩下的下一处(两处匹配);全部换完提示…`;`editor/tests/e2e/parity-gaps.spec.ts › E-44 替换下一个(三处匹配):替换第一处后选中第二处,不跳过`;`冒烟 › 菜单键位「替换下一个」` | 有 |
 | E-45 | 语音 ▸ 开始 / 停止朗读 | 依据:`MainMenu.swift` 编辑 ▸「语音」两项用 macOS 标准朗读动作;`冒烟 › nativeChecks.standardMenus` | 系统 |
-| E-46 | 表情与符号 ⌃⌘空格 | 依据:`MainMenu.swift` 编辑 ▸「表情与符号」用 macOS 标准字符面板,键位 ⌃⌘空格(不在菜单键位清单里);`冒烟 › nativeChecks.standardMenus`(「表情与符号」只此一项,系统自动插入的已关掉);`冒烟 › 菜单键位「表情与符号」` | 系统 |
+| E-46 | 表情与符号 ⌃⌘空格 | 依据:`MainMenu.swift` 编辑 ▸「表情与符号」用 macOS 标准字符面板,键位 ⌃⌘空格;`冒烟 › nativeChecks.standardMenus`(「表情与符号」只此一项,系统自动插入的已关掉);`冒烟 › 菜单键位「表情与符号」` | 系统 |
 
 ### P 段落
 
@@ -391,8 +391,8 @@
 | X-21 | typora-copy-images-to | `editor/tests/unit/parity-p4.test.ts › X-21 从文档 YAML 读出插图目录并决定落盘位置:相对、${filenam…`;`editor/tests/e2e/parity-p4.spec.ts › X-21 YAML 写了 typora-copy-images-to:粘贴的图片…`;`editor/tests/unit/assets.test.ts › YAML 的 typora-copy-images-to 优先;值为 uploa…` | 有 |
 | X-23 | 导出变量 | `editor/tests/unit/parity-p4.test.ts › X-23 ${today} 为年-月-日;${outputFolder}、${c…`;`editor/tests/unit/parity-p4.test.ts › X-23 未保存的文档:标题取首个标题,文档位置相关的变量为空;YAML 的 t…`;`editor/tests/e2e/parity-p4.spec.ts › X-23 导出 PDF:页眉页脚里的 ${title}、${currentFil…`;`editor/tests/unit/export-flow.test.ts › 替换 ${变量},不认识的原样保留`;`app/Tests/TypozaKitTests/PreferencesKitTests.swift › testExpandsVariablesAndKeepsUnknown`;`冒烟 › nativeChecks.exportPdf`(读回 PDF 第 1 页页首为「页首 1」) | 有 |
 | X-25 | 智能粘贴 | `editor/tests/e2e/parity-p4.spec.ts › X-25 智能粘贴:粘贴网页 HTML 保留标题、无序 / 有序列表、加粗与链接…`;`editor/tests/e2e/parity-p1.spec.ts › E-02 粘贴 HTML:优先取 HTML 并转成 Markdown,不用同时给…` | 有 |
-| X-26 | 粘贴 Apple 备忘录列表 | 无用例 | 无 |
-| X-27 | 代码语言补全 | `` editor/tests/e2e/parity-p4.spec.ts › X-27 代码语言补全:``` 与 ~~~ 建出的代码块,语言框都接上语言清单;… `` | 部分:三个反引号与 `~~~` 两种围栏的语言框都接上语言清单、选定语言写进围栏已测;真机待确认:输入语言名时下拉提示在 macOS 上弹出(下拉框由网页视图自己绘制,用例断言不到) |
+| X-26 | 粘贴 Apple 备忘录列表 | `editor/tests/e2e/parity-p4.spec.ts › X-25 智能粘贴:粘贴网页 HTML 保留标题、无序 / 有序列表、加粗与链接,存成 Markdown`(备忘录不单独处理,走同一条 HTML 粘贴) | 部分:通用 HTML 列表粘贴已测;真机待确认:备忘录的剪贴板样本 |
+| X-27 | 代码语言补全 | `` editor/tests/e2e/parity-p4.spec.ts › X-27 代码语言补全:``` 与 ~~~ 建出的代码块,语言框都接上语言清单;… `` | 部分:三个反引号与 `~~~` 两种围栏的语言框都接上语言清单、选定语言写进围栏已测;真机待确认:输入语言名时下拉提示在 macOS 上弹出(下拉提示是 HTML datalist 交给系统原生的输入建议列表,用例断言不到) |
 | X-28 | 输入三个反引号后回车建代码块 | `` editor/tests/e2e/code-math.spec.ts › ``` 后回车建代码块,~~~ 同效 ``;`` editor/tests/e2e/notion-input.spec.ts › 分割线 --- 与代码块 ``` `` | 有 |
 | X-29 | 输入 `$$` 后回车建公式块 | `editor/tests/e2e/notion-keys.spec.ts › #15 $$ 后回车成公式块` | 有 |
 | X-30 | 输入 `\| 列1 \| 列2 \|` 后回车建表格 | `editor/tests/e2e/table.spec.ts › \|a\|b\| 回车建表,Tab 跳格,末格 Tab 新增一行` | 有 |
@@ -436,7 +436,7 @@
 
 ## 三、仍未完全覆盖
 
-共 13 行:部分 12 行、无 1 行,都要在真机上确认(A-07、F-04、E-38、E-39、P-18、V-11、S-14、S-20、PE-08、PG-01、X-26、X-27、X-55)。
+共 13 行,都是「部分」,剩下的部分都要在真机上确认(A-07、F-04、E-38、E-39、P-18、V-11、S-14、S-20、PE-08、PG-01、X-26、X-27、X-55)。
 
 | 编号 | 功能 | 判定 | 缺什么 | 原因 |
 |---|---|---|---|---|
@@ -450,6 +450,6 @@
 | S-20 | 撤销上一次文件操作 | 部分 | 焦点在侧栏时按 ⌘Z 先撤销文件操作 | 需真机(对照表本身标了待真机确认):⌘Z 在真应用里先经菜单栏的标准「撤销」 |
 | PE-08 | 拼写检查语言 | 部分 | 系统词典按所选语言检查 | 需真机:用例只断言设置交给了外壳 |
 | PG-01 | 所有窗口被关闭后自动退出 | 部分 | 开关关闭时关掉最后一个窗口后,点程序坞图标新开窗口 | 需真机:冒烟只核对了外壳的退出判断 |
-| X-26 | 粘贴 Apple 备忘录列表 | 无 | 全部:从备忘录拷出的列表粘贴后保持列表结构 | 需真机:先在真机上从备忘录拷一次,采集剪贴板样本,再据此写网页端用例 |
+| X-26 | 粘贴 Apple 备忘录列表 | 部分 | 备忘录拷出的列表粘贴后保持列表结构 | 需真机:通用 HTML 列表粘贴已测;要在真机上从备忘录拷一次,采集剪贴板样本核对 |
 | X-27 | 代码语言补全 | 部分 | 输入语言名时下拉提示在 macOS 上弹出 | 需真机:下拉提示是系统原生的输入建议列表,用例只能断言语言框接上了清单 |
 | X-55 | 命令行与默认应用 | 部分 | 在 Finder 里把 Typoza 设为 .md 默认应用后双击打开 | 需真机 |
