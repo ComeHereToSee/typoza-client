@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { loadDoc, markdown, openApp } from './helpers'
 import { contextMenuAt, hostCalls, runMenuCommand } from './media-helpers'
 
-// 对照表「实现」行里此前没有用例为证、或补实现后要验证的几项:X-15、X-60、C-10、C-13、C-14、P-11、P-13、P-17、P-23、P-30、M-12、M-20、M-21、S-01、PF-02、E-44,以及 HTML 块里的图片双击放大
+// 对照表「实现」行里此前没有用例为证、或补实现后要验证的几项:X-15、X-60、C-10、C-13、C-14、P-11、P-13、P-17、P-23、P-30、M-12、M-20、M-21、S-01、PF-02、E-44、PA-06、PM-15、PM-16、X-43,以及 HTML 块里的图片双击放大
 test.beforeEach(async ({ page }) => {
   await openApp(page)
 })
@@ -252,4 +252,43 @@ test('E-44 替换下一个(三处匹配):替换第一处后选中第二处,不�
   await runMenuCommand(page, 'find.replaceNext')
   await expect.poll(() => markdown(page)).toBe('梨一\n\n梨二\n\n苹果三\n')
   await expect.poll(selected).toEqual({ from: 9, text: '苹果' })
+})
+
+test('PA-06 默认显示大纲视图:打开开关后启动时侧栏显示大纲', async ({ page }) => {
+  const tab = () => page.evaluate(() => (window.typozaTest!.app as unknown as { sidebar: { currentTab: string } }).sidebar.currentTab)
+  await expect.poll(tab).not.toBe('outline')
+  await openApp(page, `?settings=${encodeURIComponent(JSON.stringify({ outlineByDefault: true, sidebarVisible: true }))}`)
+  await expect.poll(tab).toBe('outline')
+})
+
+test('PM-15 / PM-16 改代码块行号、自动换行:已显示的代码块当场生效,不用重开文档', async ({ page }) => {
+  await loadDoc(page, '```js\nconst a = 1\n```\n')
+  const content = page.locator('.tz-editor .tz-code-block .cm-content')
+  await expect(content).toHaveCount(1)
+  await expect(page.locator('.tz-editor .cm-lineNumbers')).toHaveCount(0)
+  await page.evaluate(() => window.typozaTest!.app.updateSettings({ codeLineNumbers: true }))
+  await expect(page.locator('.tz-editor .cm-lineNumbers')).toHaveCount(1)
+  // 自动换行默认开
+  await expect(content).toHaveClass(/cm-lineWrapping/)
+  await page.evaluate(() => window.typozaTest!.app.updateSettings({ codeLineWrap: false }))
+  await expect(content).not.toHaveClass(/cm-lineWrapping/)
+})
+
+test('PM-16 打印与导出 PDF 时代码块始终折行(关掉自动换行也一样)', async ({ page }) => {
+  await page.evaluate(() => window.typozaTest!.app.updateSettings({ codeLineWrap: false }))
+  await loadDoc(page, '```js\nconst a = 1\n```\n')
+  const content = page.locator('.tz-editor .tz-code-block .cm-content')
+  await expect(content).not.toHaveClass(/cm-lineWrapping/)
+  expect(await content.evaluate((el) => getComputedStyle(el).whiteSpace)).not.toBe('pre-wrap')
+  await page.emulateMedia({ media: 'print' })
+  expect(await content.evaluate((el) => getComputedStyle(el).whiteSpace)).toBe('pre-wrap')
+})
+
+test('X-43 段落里成对的 kbd、ruby、font 照样渲染,保存不改原文', async ({ page }) => {
+  const md = '按 <kbd>Ctrl</kbd> 与 <ruby>汉<rt>hàn</rt></ruby> 和 <font color="red">红</font>\n'
+  await loadDoc(page, md)
+  await expect(page.locator('.tz-editor p kbd')).toHaveText('Ctrl')
+  await expect(page.locator('.tz-editor p ruby rt')).toHaveText('hàn')
+  await expect(page.locator('.tz-editor p font[color="red"]')).toContainText('红')
+  expect(await markdown(page)).toBe(md)
 })

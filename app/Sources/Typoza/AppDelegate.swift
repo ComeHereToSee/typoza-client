@@ -130,10 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if let key = self.keyController { key.sendCommand("file.quickOpen") } else { self.newWindow(open: nil).sendCommandWhenReady("file.quickOpen") }
             return nil
         }
-        if smokeOut == nil, !UserDefaults.standard.bool(forKey: Self.welcomeShownKey) {
-            UserDefaults.standard.set(true, forKey: Self.welcomeShownKey)
-            openWelcome(reuseBlank: true)
-        }
+        if smokeOut == nil { showWelcomeOnFirstLaunch() }
         NSApp.activate(ignoringOtherApps: true)
         mark("didFinishLaunchingEnd")
     }
@@ -312,6 +309,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } catch {
             NSAlert(error: error).runModal()
         }
+    }
+
+    /// 欢迎向导(对照表 H-06):首次启动自动打开「快速上手」,之后不再自动打开
+    private func showWelcomeOnFirstLaunch() {
+        guard !UserDefaults.standard.bool(forKey: Self.welcomeShownKey) else { return }
+        UserDefaults.standard.set(true, forKey: Self.welcomeShownKey)
+        openWelcome(reuseBlank: true)
     }
 
     private func openWelcome(reuseBlank: Bool) {
@@ -622,7 +626,7 @@ extension AppDelegate {
         }
     }
 
-    /// 外壳自检第二段(对照表 E-03、E-09、E-15、E-17、E-18、F-01 ~ F-03、F-05、F-06、PF-06、PG-01、PX-04、PX-06、X-55),逐项按顺序跑。
+    /// 外壳自检第二段(对照表 E-03、E-09、E-15、E-17、E-18、F-01 ~ F-03、F-05、F-06、H-01、H-03、H-04、H-06、H-07、PF-06、PG-01、PX-04、PX-06、X-55),逐项按顺序跑。
     /// 网页侧冒烟(smoke.ts)已导出好 PDF / PNG、把动图拷进剪贴板,这里读回核对。
     private func moreNativeSmoke(_ main: DocumentWindowController, _ checks: [String: Any], _ completion: @escaping ([String: Any]) -> Void) {
         var checks = checks
@@ -778,6 +782,62 @@ extension AppDelegate {
             p.arguments = ["-a", Bundle.main.bundlePath, file]
             do { try p.run() } catch { return done(["openCommandLine": false]) }
             self.waitUntil(20, { self.windows.contains { $0.currentPath.map(real) == real(file) } }) { done(["openCommandLine": $0]) }
+        }
+
+        // H-01 / H-03 / H-04 / H-07 帮助文档:换成应用自带的最新版并设为只读,开在新窗口;Markdown 参考含 Typoza 新块的存储写法
+        steps.append { done in
+            let keys = ["changelog", "markdown", "images", "pandoc", "acknowledgements", "privacy"]
+            var results: [String: Bool] = [:]
+            func openNext(_ i: Int) {
+                guard i < keys.count else { return done(results) }
+                let key = keys[i]
+                guard let doc = Self.helpDocs[key] else {
+                    results["help_\(key)"] = false
+                    return openNext(i + 1)
+                }
+                let target = AppPaths.support.appendingPathComponent("help/\(doc.title).md").path
+                command("native.help.\(key)")
+                self.waitUntil(15, { self.windows.contains { $0.isShowing(target) } }) { shown in
+                    var ok = shown && !FileManager.default.isWritableFile(atPath: target)
+                    if key == "markdown" { ok = ok && ((try? String(contentsOfFile: target, encoding: .utf8)) ?? "").contains("data-tz-type=\"bookmark\"") }
+                    results["help_\(key)"] = ok
+                    openNext(i + 1)
+                }
+            }
+            openNext(0)
+        }
+
+        // H-07 官方网站、反馈:Info.plist 没配地址时菜单项置灰,配了才可点
+        steps.append { done in
+            let item = { (id: String) -> NSMenuItem in
+                let m = NSMenuItem(title: "", action: #selector(self.menuCommand(_:)), keyEquivalent: "")
+                m.representedObject = id
+                return m
+            }
+            let website = self.validateMenuItem(item("native.website")) == (Self.configuredURL("TypozaWebsiteURL") != nil)
+            let feedback = self.validateMenuItem(item("native.feedback")) == (Self.configuredURL("TypozaFeedbackURL") != nil)
+            done(["linksGreyed": website && feedback])
+        }
+
+        // H-06 欢迎向导:没有「已显示」标记时(首次启动)自动打开「快速上手」并记下标记;再走一次不再打开
+        steps.append { done in
+            let target = AppPaths.support.appendingPathComponent("welcome/快速上手.md").path
+            let showing = { self.windows.contains { $0.isShowing(target) } }
+            let closeAll = { self.windows.filter { $0.isShowing(target) }.forEach { $0.window?.performClose(nil) } }
+            closeAll()
+            self.waitUntil(10, { !showing() }) { closed in
+                guard closed else { return done(["firstLaunchWelcome": false]) }
+                UserDefaults.standard.removeObject(forKey: Self.welcomeShownKey)
+                self.showWelcomeOnFirstLaunch()
+                self.waitUntil(15, showing) { shown in
+                    let marked = UserDefaults.standard.bool(forKey: Self.welcomeShownKey)
+                    closeAll()
+                    self.waitUntil(10, { !showing() }) { _ in
+                        self.showWelcomeOnFirstLaunch()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { done(["firstLaunchWelcome": shown && marked && !showing()]) }
+                    }
+                }
+            }
         }
 
         // PF-06 恢复未保存的草稿:没在任何标签里的草稿开出来,内容进编辑器(窗口留着:关掉会询问是否保存)
