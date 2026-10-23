@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test'
 import { loadDoc, markdown, openApp } from './helpers'
-import { contextMenuAt, hostCalls } from './media-helpers'
+import { contextMenuAt, hostCalls, runMenuCommand } from './media-helpers'
 
-// 对照表「实现」行里此前没有用例为证的几项:X-15、X-60、C-10、C-14,以及 HTML 块里的图片双击放大
+// 对照表「实现」行里此前没有用例为证的几项:X-15、X-60、C-10、C-13、C-14、P-11、P-13、P-17、P-23、M-12,以及 HTML 块里的图片双击放大
 test.beforeEach(async ({ page }) => {
   await openApp(page)
 })
@@ -111,4 +111,68 @@ test('HTML 块里的图片双击打开灯箱', async ({ page }) => {
   await expect.poll(() => page.locator('.tz-lb-img').evaluate((el: HTMLImageElement) => el.naturalWidth), { timeout: 5000 }).toBeGreaterThan(0)
   await page.keyboard.press('Escape')
   await expect(page.locator('.tz-lightbox')).toHaveCount(0)
+})
+
+test.describe('P-11 / P-13 / P-17 右键 ▸ 表格', () => {
+  test('上方插入行、左侧 / 右侧插入列、删除列', async ({ page }) => {
+    await loadDoc(page, '| a | b |\n| - | - |\n| 1 | 2 |\n')
+    const rows = page.locator('.tz-editor tr')
+    const cols = rows.first().locator('th, td')
+    const one = page.locator('.tz-editor td').filter({ hasText: /^1$/ })
+    const pick = async (id: string) => {
+      await one.click({ button: 'right' })
+      await page.locator(menuItem('ctx.table')).hover()
+      await page.locator(menuItem(`ctx.${id}`)).click()
+    }
+    await pick('table.rowAbove')
+    await expect(rows).toHaveCount(3)
+    await expect(rows.nth(1)).not.toContainText('1')
+    await expect(rows.nth(2)).toContainText('1')
+    await pick('table.colLeft')
+    await expect(cols).toHaveCount(3)
+    await pick('table.colRight')
+    await expect(cols).toHaveCount(4)
+    // 删掉「1」所在列:表头 a 与「1」一起没了,b、2 还在
+    await pick('table.deleteCol')
+    await expect(cols).toHaveCount(3)
+    await expect(one).toHaveCount(0)
+    await expect(page.locator('.tz-editor th').filter({ hasText: /^a$/ })).toHaveCount(0)
+    await expect(page.locator('.tz-editor td').filter({ hasText: /^2$/ })).toHaveCount(1)
+  })
+
+  test('表格外右键没有「表格」子菜单', async ({ page }) => {
+    await loadDoc(page, '段落\n\n| a |\n| - |\n| 1 |\n')
+    await page.locator('.tz-editor > p').first().click({ button: 'right' })
+    await expect(page.locator(menuItem('ctx.insert'))).toBeVisible()
+    await expect(page.locator(menuItem('ctx.table'))).toHaveCount(0)
+  })
+})
+
+test('C-13 / M-12 右键链接:复制链接地址、复制链接文字、打开链接', async ({ page }) => {
+  await loadDoc(page, '看 [示例站点](https://example.com/a) 这里\n')
+  const link = page.locator('.tz-editor a', { hasText: '示例站点' })
+  const clipboard = () => page.evaluate(() => window.typozaTest!.host.clipboard.text)
+  await link.click({ button: 'right' })
+  await page.locator(menuItem('ctx.link.copyUrl')).click()
+  await expect.poll(clipboard).toBe('https://example.com/a')
+  await link.click({ button: 'right' })
+  await expect(page.locator(menuItem('ctx.link.copyText'))).toContainText('复制「示例站点」')
+  await page.locator(menuItem('ctx.link.copyText')).click()
+  await expect.poll(clipboard).toBe('示例站点')
+  await link.click({ button: 'right' })
+  await page.locator(menuItem('ctx.link.open')).click()
+  await expect.poll(() => hostCalls(page, 'openExternal')).toContainEqual(['https://example.com/a'])
+})
+
+test('P-23 代码工具 ▸ 复制代码块内容;右上角【复制代码】按钮同样写进剪贴板', async ({ page }) => {
+  await loadDoc(page, '```js\nconst a = 1\nconst b = 2\n```\n\n段落\n')
+  const clipboard = () => page.evaluate(() => window.typozaTest!.host.clipboard.text)
+  await page.locator('.tz-editor .tz-code-block .cm-content').click()
+  await runMenuCommand(page, 'code.copyBlock')
+  await expect.poll(clipboard).toBe('const a = 1\nconst b = 2')
+  await page.evaluate(() => {
+    window.typozaTest!.host.clipboard.text = ''
+  })
+  await page.locator('.tz-editor .tz-code-block .tz-code-copy').click()
+  await expect.poll(clipboard).toBe('const a = 1\nconst b = 2')
 })

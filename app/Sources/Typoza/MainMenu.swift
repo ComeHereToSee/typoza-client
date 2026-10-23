@@ -264,6 +264,7 @@ enum MainMenu {
             submenu("代码工具", [
                 cmd("为选中内容调整缩进", "code.indentSelection"),
                 cmd("为整个代码块调整缩进", "code.indentBlock"),
+                cmd("复制代码块内容", "code.copyBlock"),
             ]),
             cmd("公式块", "block.math", "b", [.command, .option]),
             cmd("引用", "block.quote", "q", [.command, .option]),
