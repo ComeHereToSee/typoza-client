@@ -1,0 +1,1889 @@
+{
+  "scaling": [
+    {
+      "kb": 256,
+      "blocks": 2792,
+      "parseMs": 297,
+      "openMs": 128,
+      "loadedMs": 451,
+      "closeMs": 7
+    },
+    {
+      "kb": 512,
+      "blocks": 5556,
+      "parseMs": 393,
+      "openMs": 101,
+      "loadedMs": 653,
+      "closeMs": 7
+    },
+    {
+      "kb": 1024,
+      "blocks": 11036,
+      "parseMs": 726,
+      "openMs": 95,
+      "loadedMs": 1106,
+      "closeMs": 12
+    },
+    {
+      "kb": 2048,
+      "blocks": 21998,
+      "parseMs": 1481,
+      "openMs": 98,
+      "loadedMs": 1974,
+      "closeMs": 20
+    },
+    {
+      "kb": 5120,
+      "blocks": 54678,
+      "parseMs": 3635,
+      "openMs": 121,
+      "loadedMs": 5586,
+      "closeMs": 44
+    }
+  ],
+  "scalingWebkit": [
+    {
+      "kb": 64,
+      "blocks": 704,
+      "parseMs": 120,
+      "openMs": 1331,
+      "loadedMs": 1332,
+      "closeMs": 12
+    },
+    {
+      "kb": 128,
+      "blocks": 1402,
+      "parseMs": 170,
+      "openMs": 404,
+      "loadedMs": 404,
+      "closeMs": 17
+    },
+    {
+      "kb": 256,
+      "blocks": 2792,
+      "parseMs": 323,
+      "openMs": 171,
+      "loadedMs": 776,
+      "closeMs": 14
+    },
+    {
+      "kb": 512,
+      "blocks": 5556,
+      "parseMs": 534,
+      "openMs": 151,
+      "loadedMs": 962,
+      "closeMs": 23
+    },
+    {
+      "kb": 1024,
+      "blocks": 11036,
+      "parseMs": 1080,
+      "openMs": 165,
+      "loadedMs": 1808,
+      "closeMs": 31
+    },
+    {
+      "kb": 2048,
+      "blocks": 21998,
+      "parseMs": 2157,
+      "openMs": 167,
+      "loadedMs": 3751,
+      "closeMs": 46
+    },
+    {
+      "kb": 5120,
+      "blocks": 54678,
+      "parseMs": 5432,
+      "openMs": 194,
+      "loadedMs": 10882,
+      "closeMs": 103
+    }
+  ],
+  "startup": {
+    "readyMs": 388,
+    "scripts": [
+      {
+        "script": "/assets/rolldown-runtime-DbVrKiKs.js",
+        "kb": 2,
+        "usedKb": 1
+      },
+      {
+        "script": "/assets/index-CGR6dumZ.js",
+        "kb": 1947,
+        "usedKb": 773
+      },
+      {
+        "script": "/assets/memory-B4oH3X9d.js",
+        "kb": 22,
+        "usedKb": 6
+      },
+      {
+        "script": "/assets/demo-DEtO0BR2.js",
+        "kb": 2,
+        "usedKb": 2
+      },
+      {
+        "script": "/assets/mhchem-k8Vdd0Me.js",
+        "kb": 55,
+        "usedKb": 24
+      },
+      {
+        "script": "/assets/katex-BEPN8FI0.js",
+        "kb": 485,
+        "usedKb": 326
+      }
+    ],
+    "modules": [
+      {
+        "module": "katex",
+        "kb": 540,
+        "unusedKb": 189
+      },
+      {
+        "module": "src/app",
+        "kb": 244,
+        "unusedKb": 172
+      },
+      {
+        "module": "yaml",
+        "kb": 198,
+        "unusedKb": 164
+      },
+      {
+        "module": "prosemirror-view",
+        "kb": 177,
+        "unusedKb": 116
+      },
+      {
+        "module": "src/core",
+        "kb": 163,
+        "unusedKb": 104
+      },
+      {
+        "module": "src/plugins",
+        "kb": 142,
+        "unusedKb": 99
+      },
+      {
+        "module": "prosemirror-tables",
+        "kb": 69,
+        "unusedKb": 57
+      },
+      {
+        "module": "src/views",
+        "kb": 69,
+        "unusedKb": 52
+      },
+      {
+        "module": "micromark-core-commonmark",
+        "kb": 91,
+        "unusedKb": 51
+      },
+      {
+        "module": "prosemirror-transform",
+        "kb": 65,
+        "unusedKb": 49
+      },
+      {
+        "module": "dompurify",
+        "kb": 84,
+        "unusedKb": 42
+      },
+      {
+        "module": "mdast-util-to-markdown",
+        "kb": 77,
+        "unusedKb": 41
+      },
+      {
+        "module": "prosemirror-model",
+        "kb": 96,
+        "unusedKb": 40
+      },
+      {
+        "module": "src/ui",
+        "kb": 27,
+        "unusedKb": 23
+      },
+      {
+        "module": "prosemirror-commands",
+        "kb": 22,
+        "unusedKb": 16
+      },
+      {
+        "module": "src/host",
+        "kb": 18,
+        "unusedKb": 14
+      },
+      {
+        "module": "prosemirror-state",
+        "kb": 29,
+        "unusedKb": 11
+      },
+      {
+        "module": "micromark-extension-gfm-autolink-literal",
+        "kb": 15,
+        "unusedKb": 10
+      },
+      {
+        "module": "(未标记)",
+        "kb": 13,
+        "unusedKb": 9
+      },
+      {
+        "module": "vfile",
+        "kb": 23,
+        "unusedKb": 9
+      },
+      {
+        "module": "prosemirror-history",
+        "kb": 12,
+        "unusedKb": 8
+      },
+      {
+        "module": "mdast-util-from-markdown",
+        "kb": 25,
+        "unusedKb": 8
+      },
+      {
+        "module": "prosemirror-schema-list",
+        "kb": 8,
+        "unusedKb": 7
+      },
+      {
+        "module": "micromark-extension-math",
+        "kb": 11,
+        "unusedKb": 7
+      },
+      {
+        "module": "micromark-extension-gfm-footnote",
+        "kb": 9,
+        "unusedKb": 6
+      },
+      {
+        "module": "unified",
+        "kb": 34,
+        "unusedKb": 6
+      },
+      {
+        "module": "prosemirror-gapcursor",
+        "kb": 6,
+        "unusedKb": 5
+      },
+      {
+        "module": "rope-sequence",
+        "kb": 6,
+        "unusedKb": 5
+      },
+      {
+        "module": "micromark-extension-frontmatter",
+        "kb": 11,
+        "unusedKb": 5
+      },
+      {
+        "module": "prosemirror-dropcursor",
+        "kb": 5,
+        "unusedKb": 4
+      }
+    ],
+    "marks": [
+      {
+        "name": "tz:settings",
+        "ms": 226
+      },
+      {
+        "name": "tz:ui",
+        "ms": 247
+      },
+      {
+        "name": "tz:draft",
+        "ms": 248
+      },
+      {
+        "name": "tz:open",
+        "ms": 309
+      }
+    ],
+    "coldRunsMs": [
+      203,
+      208,
+      209,
+      211,
+      213,
+      204,
+      212
+    ],
+    "coldMedianMs": 209
+  },
+  "phases": {
+    "parseMs": 749,
+    "openMs": {
+      "firstScreen": 108,
+      "loaded": 1070
+    },
+    "input": {
+      "total": {
+        "p50": 0.5,
+        "p95": 1.5,
+        "max": 5.9
+      },
+      "dispatch": {
+        "p50": 0.3,
+        "p95": 1.2,
+        "max": 5.7
+      }
+    },
+    "switchBackMs": 42
+  },
+  "profiles": {
+    "启动": {
+      "self": [
+        {
+          "fn": "(idle) :0",
+          "ms": 111.5
+        },
+        {
+          "fn": "(program) :0",
+          "ms": 107
+        },
+        {
+          "fn": "(匿名) /assets/index-CGR6dumZ.js:1",
+          "ms": 50.1
+        },
+        {
+          "fn": "setDocument /assets/index-CGR6dumZ.js:63868",
+          "ms": 27.1
+        },
+        {
+          "fn": "(garbage collector) :0",
+          "ms": 6.8
+        },
+        {
+          "fn": "(匿名) /assets/memory-B4oH3X9d.js:507",
+          "ms": 4.3
+        },
+        {
+          "fn": "h /assets/index-CGR6dumZ.js:40883",
+          "ms": 1.6
+        },
+        {
+          "fn": "query :5816",
+          "ms": 1.5
+        },
+        {
+          "fn": "start /assets/index-CGR6dumZ.js:34391",
+          "ms": 1.4
+        },
+        {
+          "fn": "resourceURL /assets/memory-B4oH3X9d.js:449",
+          "ms": 1.4
+        },
+        {
+          "fn": "buildPlugins /assets/index-CGR6dumZ.js:51100",
+          "ms": 1.3
+        },
+        {
+          "fn": "compile /assets/index-CGR6dumZ.js:34957",
+          "ms": 1.1
+        },
+        {
+          "fn": "countWords /assets/index-CGR6dumZ.js:44547",
+          "ms": 1.1
+        },
+        {
+          "fn": "updatePluginViews /assets/index-CGR6dumZ.js:10326",
+          "ms": 1.1
+        },
+        {
+          "fn": "InjectedScript :6969",
+          "ms": 1.1
+        },
+        {
+          "fn": "init /assets/index-CGR6dumZ.js:63719",
+          "ms": 1
+        },
+        {
+          "fn": "(匿名) :2",
+          "ms": 1
+        },
+        {
+          "fn": "evaluate :364",
+          "ms": 0.9
+        },
+        {
+          "fn": "subcontent /assets/index-CGR6dumZ.js:27633",
+          "ms": 0.8
+        },
+        {
+          "fn": "(匿名) /assets/mhchem-k8Vdd0Me.js:1",
+          "ms": 0.8
+        },
+        {
+          "fn": "(匿名) /assets/katex-BEPN8FI0.js:1",
+          "ms": 0.8
+        },
+        {
+          "fn": "get root /assets/index-CGR6dumZ.js:10396",
+          "ms": 0.8
+        },
+        {
+          "fn": "applyTransaction /assets/index-CGR6dumZ.js:5694",
+          "ms": 0.6
+        },
+        {
+          "fn": "resolveAll /assets/index-CGR6dumZ.js:25649",
+          "ms": 0.6
+        },
+        {
+          "fn": "splice /assets/index-CGR6dumZ.js:24814",
+          "ms": 0.6
+        },
+        {
+          "fn": "visit /assets/index-CGR6dumZ.js:19387",
+          "ms": 0.6
+        },
+        {
+          "fn": "createElement :0",
+          "ms": 0.6
+        },
+        {
+          "fn": "resolveTable /assets/index-CGR6dumZ.js:32507",
+          "ms": 0.6
+        },
+        {
+          "fn": "appendChild :0",
+          "ms": 0.5
+        },
+        {
+          "fn": "fromSchema /assets/index-CGR6dumZ.js:2478",
+          "ms": 0.5
+        },
+        {
+          "fn": "svgIcon /assets/index-CGR6dumZ.js:40898",
+          "ms": 0.5
+        },
+        {
+          "fn": "open /assets/index-CGR6dumZ.js:35163",
+          "ms": 0.5
+        },
+        {
+          "fn": "boot /assets/index-CGR6dumZ.js:65317",
+          "ms": 0.5
+        },
+        {
+          "fn": "scrollStack /assets/index-CGR6dumZ.js:6133",
+          "ms": 0.5
+        },
+        {
+          "fn": "blockSelectionPlugin /assets/index-CGR6dumZ.js:43924",
+          "ms": 0.5
+        },
+        {
+          "fn": "buildKeymaps /assets/index-CGR6dumZ.js:51010",
+          "ms": 0.5
+        },
+        {
+          "fn": "renderTex /assets/index-CGR6dumZ.js:49146",
+          "ms": 0.5
+        },
+        {
+          "fn": "image /assets/index-CGR6dumZ.js:51159",
+          "ms": 0.5
+        },
+        {
+          "fn": "update /assets/index-CGR6dumZ.js:48023",
+          "ms": 0.5
+        },
+        {
+          "fn": "FindPanel /assets/index-CGR6dumZ.js:44360",
+          "ms": 0.5
+        }
+      ],
+      "total": [
+        {
+          "fn": "(root) :0",
+          "ms": 378.2
+        },
+        {
+          "fn": "(idle) :0",
+          "ms": 111.5
+        },
+        {
+          "fn": "(program) :0",
+          "ms": 107
+        },
+        {
+          "fn": "(匿名) /assets/index-CGR6dumZ.js:1",
+          "ms": 55.2
+        },
+        {
+          "fn": "openFile /assets/index-CGR6dumZ.js:63936",
+          "ms": 40.9
+        },
+        {
+          "fn": "setDocument /assets/index-CGR6dumZ.js:63868",
+          "ms": 35.5
+        },
+        {
+          "fn": "init /assets/index-CGR6dumZ.js:63719",
+          "ms": 18.5
+        },
+        {
+          "fn": "loadProgressive /assets/index-CGR6dumZ.js:58043",
+          "ms": 17.2
+        },
+        {
+          "fn": "nextBlocks /assets/index-CGR6dumZ.js:39038",
+          "ms": 16.9
+        },
+        {
+          "fn": "parse /assets/index-CGR6dumZ.js:37787",
+          "ms": 13.6
+        },
+        {
+          "fn": "createEditorView /assets/index-CGR6dumZ.js:51145",
+          "ms": 13.4
+        },
+        {
+          "fn": "newView /assets/index-CGR6dumZ.js:63851",
+          "ms": 13.4
+        },
+        {
+          "fn": "EditorView /assets/index-CGR6dumZ.js:10145",
+          "ms": 13.1
+        },
+        {
+          "fn": "fromMarkdown /assets/index-CGR6dumZ.js:34825",
+          "ms": 12.6
+        },
+        {
+          "fn": "parser /assets/index-CGR6dumZ.js:35832",
+          "ms": 12.6
+        },
+        {
+          "fn": "docViewDesc /assets/index-CGR6dumZ.js:7110",
+          "ms": 8.3
+        },
+        {
+          "fn": "write /assets/index-CGR6dumZ.js:34190",
+          "ms": 7.9
+        },
+        {
+          "fn": "updateChildren /assets/index-CGR6dumZ.js:7007",
+          "ms": 7.8
+        },
+        {
+          "fn": "go /assets/index-CGR6dumZ.js:34251",
+          "ms": 7.6
+        },
+        {
+          "fn": "main /assets/index-CGR6dumZ.js:34233",
+          "ms": 7.6
+        },
+        {
+          "fn": "iterDeco /assets/index-CGR6dumZ.js:7591",
+          "ms": 7.5
+        },
+        {
+          "fn": "replaceView /assets/index-CGR6dumZ.js:63862",
+          "ms": 7.3
+        },
+        {
+          "fn": "(匿名) :1",
+          "ms": 7.2
+        },
+        {
+          "fn": "(匿名) /assets/index-CGR6dumZ.js:7019",
+          "ms": 7
+        },
+        {
+          "fn": "(garbage collector) :0",
+          "ms": 6.8
+        },
+        {
+          "fn": "addNode /assets/index-CGR6dumZ.js:7460",
+          "ms": 6.7
+        },
+        {
+          "fn": "create /assets/index-CGR6dumZ.js:6949",
+          "ms": 5.6
+        },
+        {
+          "fn": "renderTex /assets/index-CGR6dumZ.js:49146",
+          "ms": 5.5
+        },
+        {
+          "fn": "render /assets/index-CGR6dumZ.js:62883",
+          "ms": 5.1
+        },
+        {
+          "fn": "updatePluginViews /assets/index-CGR6dumZ.js:10326",
+          "ms": 5.1
+        },
+        {
+          "fn": "renderTree /assets/index-CGR6dumZ.js:62949",
+          "ms": 4.8
+        },
+        {
+          "fn": "renderDir /assets/index-CGR6dumZ.js:62977",
+          "ms": 4.6
+        },
+        {
+          "fn": "evaluate :364",
+          "ms": 4.6
+        },
+        {
+          "fn": "setRoot /assets/index-CGR6dumZ.js:62797",
+          "ms": 4.6
+        },
+        {
+          "fn": "createEditorState /assets/index-CGR6dumZ.js:51139",
+          "ms": 4.5
+        },
+        {
+          "fn": "dispatchTransaction /assets/index-CGR6dumZ.js:51171",
+          "ms": 4.5
+        },
+        {
+          "fn": "EditorView.dispatch /assets/index-CGR6dumZ.js:10564",
+          "ms": 4.5
+        },
+        {
+          "fn": "setViewModes /assets/index-CGR6dumZ.js:42433",
+          "ms": 4.5
+        },
+        {
+          "fn": "applyViewModes /assets/index-CGR6dumZ.js:63796",
+          "ms": 4.5
+        },
+        {
+          "fn": "(匿名) /assets/memory-B4oH3X9d.js:507",
+          "ms": 4.3
+        }
+      ]
+    },
+    "解析": {
+      "self": [
+        {
+          "fn": "(program) :0",
+          "ms": 487.2
+        },
+        {
+          "fn": "subtokenize /assets/index-CGR6dumZ.js:27559",
+          "ms": 119.9
+        },
+        {
+          "fn": "compile /assets/index-CGR6dumZ.js:34957",
+          "ms": 113.3
+        },
+        {
+          "fn": "(garbage collector) :0",
+          "ms": 105.9
+        },
+        {
+          "fn": "subcontent /assets/index-CGR6dumZ.js:27633",
+          "ms": 49.6
+        },
+        {
+          "fn": "start /assets/index-CGR6dumZ.js:34391",
+          "ms": 38.1
+        },
+        {
+          "fn": "writeToChild /assets/index-CGR6dumZ.js:33709",
+          "ms": 18.1
+        },
+        {
+          "fn": "set webkitSpeechRecognitionEvent :0",
+          "ms": 17.1
+        },
+        {
+          "fn": "start /assets/index-CGR6dumZ.js:34360",
+          "ms": 16.1
+        },
+        {
+          "fn": "data /assets/index-CGR6dumZ.js:33874",
+          "ms": 15.2
+        },
+        {
+          "fn": "splice /assets/index-CGR6dumZ.js:27430",
+          "ms": 12.9
+        },
+        {
+          "fn": "fromMarkdown /assets/index-CGR6dumZ.js:34825",
+          "ms": 12.8
+        },
+        {
+          "fn": "splice /assets/index-CGR6dumZ.js:24814",
+          "ms": 9.8
+        },
+        {
+          "fn": "headRowData /assets/index-CGR6dumZ.js:32212",
+          "ms": 9.7
+        },
+        {
+          "fn": "onexitdata /assets/index-CGR6dumZ.js:35375",
+          "ms": 8.6
+        },
+        {
+          "fn": "slice /assets/index-CGR6dumZ.js:27403",
+          "ms": 7.7
+        },
+        {
+          "fn": "sliceChunks /assets/index-CGR6dumZ.js:34480",
+          "ms": 7.5
+        },
+        {
+          "fn": "onsuccessfulconstruct /assets/index-CGR6dumZ.js:34305",
+          "ms": 7.5
+        },
+        {
+          "fn": "flowContinue /assets/index-CGR6dumZ.js:33684",
+          "ms": 6.4
+        },
+        {
+          "fn": "write /assets/index-CGR6dumZ.js:34190",
+          "ms": 6.4
+        },
+        {
+          "fn": "resolveAllText /assets/index-CGR6dumZ.js:33909",
+          "ms": 5.5
+        },
+        {
+          "fn": "prefix /assets/index-CGR6dumZ.js:26131",
+          "ms": 5.4
+        },
+        {
+          "fn": "transformFlow /assets/index-CGR6dumZ.js:38595",
+          "ms": 5.4
+        },
+        {
+          "fn": "check /assets/index-CGR6dumZ.js:19086",
+          "ms": 5.4
+        },
+        {
+          "fn": "inlines /assets/index-CGR6dumZ.js:39301",
+          "ms": 5.3
+        },
+        {
+          "fn": "data /assets/index-CGR6dumZ.js:33540",
+          "ms": 5.3
+        },
+        {
+          "fn": "enter /assets/index-CGR6dumZ.js:35180",
+          "ms": 5.3
+        },
+        {
+          "fn": "onenterdata /assets/index-CGR6dumZ.js:35357",
+          "ms": 4.3
+        },
+        {
+          "fn": "type /assets/index-CGR6dumZ.js:19070",
+          "ms": 4.3
+        },
+        {
+          "fn": "nextBlocks /assets/index-CGR6dumZ.js:39038",
+          "ms": 4.3
+        },
+        {
+          "fn": "tokenizeAttention /assets/index-CGR6dumZ.js:25806",
+          "ms": 4.3
+        },
+        {
+          "fn": "createTokenizer /assets/index-CGR6dumZ.js:34134",
+          "ms": 3.3
+        },
+        {
+          "fn": "documentContinue /assets/index-CGR6dumZ.js:33607",
+          "ms": 3.2
+        },
+        {
+          "fn": "chunkInside /assets/index-CGR6dumZ.js:27770",
+          "ms": 3.2
+        },
+        {
+          "fn": "endOfPrefix /assets/index-CGR6dumZ.js:30976",
+          "ms": 3.2
+        },
+        {
+          "fn": "splitMarkdown /assets/index-CGR6dumZ.js:38527",
+          "ms": 3.2
+        },
+        {
+          "fn": "collectDefinitions /assets/index-CGR6dumZ.js:39191",
+          "ms": 3.2
+        },
+        {
+          "fn": "flushCell /assets/index-CGR6dumZ.js:32655",
+          "ms": 2.3
+        },
+        {
+          "fn": "hook /assets/index-CGR6dumZ.js:34339",
+          "ms": 2.2
+        },
+        {
+          "fn": "after /assets/index-CGR6dumZ.js:26241",
+          "ms": 2.2
+        }
+      ],
+      "total": [
+        {
+          "fn": "(root) :0",
+          "ms": 1239
+        },
+        {
+          "fn": "(匿名) :1",
+          "ms": 644.7
+        },
+        {
+          "fn": "evaluate :364",
+          "ms": 644.7
+        },
+        {
+          "fn": "parseMarkdown /assets/index-CGR6dumZ.js:39105",
+          "ms": 643.6
+        },
+        {
+          "fn": "nextBlocks /assets/index-CGR6dumZ.js:39038",
+          "ms": 638.3
+        },
+        {
+          "fn": "fromMarkdown /assets/index-CGR6dumZ.js:34825",
+          "ms": 611.5
+        },
+        {
+          "fn": "parser /assets/index-CGR6dumZ.js:35832",
+          "ms": 611.5
+        },
+        {
+          "fn": "parse /assets/index-CGR6dumZ.js:37787",
+          "ms": 611.5
+        },
+        {
+          "fn": "(program) :0",
+          "ms": 487.2
+        },
+        {
+          "fn": "subtokenize /assets/index-CGR6dumZ.js:27559",
+          "ms": 288.6
+        },
+        {
+          "fn": "postprocess /assets/index-CGR6dumZ.js:34599",
+          "ms": 260.7
+        },
+        {
+          "fn": "compile /assets/index-CGR6dumZ.js:34957",
+          "ms": 168.8
+        },
+        {
+          "fn": "write /assets/index-CGR6dumZ.js:34190",
+          "ms": 168.2
+        },
+        {
+          "fn": "subcontent /assets/index-CGR6dumZ.js:27633",
+          "ms": 151.4
+        },
+        {
+          "fn": "(garbage collector) :0",
+          "ms": 105.9
+        },
+        {
+          "fn": "writeToChild /assets/index-CGR6dumZ.js:33709",
+          "ms": 82
+        },
+        {
+          "fn": "start /assets/index-CGR6dumZ.js:34391",
+          "ms": 52
+        },
+        {
+          "fn": "flowContinue /assets/index-CGR6dumZ.js:33684",
+          "ms": 47.4
+        },
+        {
+          "fn": "thereIsNoNewContainer /assets/index-CGR6dumZ.js:33651",
+          "ms": 42.2
+        },
+        {
+          "fn": "onsuccessfulconstruct /assets/index-CGR6dumZ.js:34305",
+          "ms": 39.8
+        },
+        {
+          "fn": "contentEnd /assets/index-CGR6dumZ.js:27781",
+          "ms": 34.2
+        },
+        {
+          "fn": "data /assets/index-CGR6dumZ.js:33874",
+          "ms": 32.5
+        },
+        {
+          "fn": "resolveContent /assets/index-CGR6dumZ.js:27732",
+          "ms": 29
+        },
+        {
+          "fn": "start /assets/index-CGR6dumZ.js:34360",
+          "ms": 27.8
+        },
+        {
+          "fn": "documentContinue /assets/index-CGR6dumZ.js:33607",
+          "ms": 25.8
+        },
+        {
+          "fn": "start /assets/index-CGR6dumZ.js:26123",
+          "ms": 21.4
+        },
+        {
+          "fn": "set webkitSpeechRecognitionEvent :0",
+          "ms": 17.1
+        },
+        {
+          "fn": "splice /assets/index-CGR6dumZ.js:27430",
+          "ms": 14
+        },
+        {
+          "fn": "prefix /assets/index-CGR6dumZ.js:26131",
+          "ms": 11.9
+        },
+        {
+          "fn": "headRowData /assets/index-CGR6dumZ.js:32212",
+          "ms": 11.9
+        },
+        {
+          "fn": "block /assets/index-CGR6dumZ.js:39216",
+          "ms": 11.8
+        },
+        {
+          "fn": "thereIsANewContainer /assets/index-CGR6dumZ.js:33645",
+          "ms": 11.2
+        },
+        {
+          "fn": "chunkInside /assets/index-CGR6dumZ.js:27770",
+          "ms": 10.7
+        },
+        {
+          "fn": "splice /assets/index-CGR6dumZ.js:24814",
+          "ms": 9.8
+        },
+        {
+          "fn": "any /assets/index-CGR6dumZ.js:19032",
+          "ms": 9.6
+        },
+        {
+          "fn": "onexitdata /assets/index-CGR6dumZ.js:35375",
+          "ms": 8.6
+        },
+        {
+          "fn": "check /assets/index-CGR6dumZ.js:19086",
+          "ms": 8.6
+        },
+        {
+          "fn": "slice /assets/index-CGR6dumZ.js:27403",
+          "ms": 7.7
+        },
+        {
+          "fn": "resolveAllText /assets/index-CGR6dumZ.js:33909",
+          "ms": 7.6
+        },
+        {
+          "fn": "sliceChunks /assets/index-CGR6dumZ.js:34480",
+          "ms": 7.5
+        }
+      ]
+    },
+    "打开并渲染": {
+      "self": [
+        {
+          "fn": "(program) :0",
+          "ms": 513
+        },
+        {
+          "fn": "subtokenize /assets/index-CGR6dumZ.js:27559",
+          "ms": 137.5
+        },
+        {
+          "fn": "(garbage collector) :0",
+          "ms": 113.3
+        },
+        {
+          "fn": "compile /assets/index-CGR6dumZ.js:34957",
+          "ms": 106.5
+        },
+        {
+          "fn": "subcontent /assets/index-CGR6dumZ.js:27633",
+          "ms": 53.3
+        },
+        {
+          "fn": "rebuildHeights /assets/index-CGR6dumZ.js:48216",
+          "ms": 52.3
+        },
+        {
+          "fn": "setDocument /assets/index-CGR6dumZ.js:63868",
+          "ms": 23.4
+        },
+        {
+          "fn": "appendHeights /assets/index-CGR6dumZ.js:48225",
+          "ms": 21.5
+        },
+        {
+          "fn": "splice /assets/index-CGR6dumZ.js:27430",
+          "ms": 21.3
+        },
+        {
+          "fn": "start /assets/index-CGR6dumZ.js:34391",
+          "ms": 20.3
+        },
+        {
+          "fn": "writeToChild /assets/index-CGR6dumZ.js:33709",
+          "ms": 19.1
+        },
+        {
+          "fn": "onexitdata /assets/index-CGR6dumZ.js:35375",
+          "ms": 17
+        },
+        {
+          "fn": "countWords /assets/index-CGR6dumZ.js:44547",
+          "ms": 17
+        },
+        {
+          "fn": "fromMarkdown /assets/index-CGR6dumZ.js:34825",
+          "ms": 15.9
+        },
+        {
+          "fn": "set webkitSpeechRecognitionEvent :0",
+          "ms": 14.9
+        },
+        {
+          "fn": "createTextNode :0",
+          "ms": 12.8
+        },
+        {
+          "fn": "write /assets/index-CGR6dumZ.js:34190",
+          "ms": 12.8
+        },
+        {
+          "fn": "nodesBetween /assets/index-CGR6dumZ.js:207",
+          "ms": 10.7
+        },
+        {
+          "fn": "renderDescs /assets/index-CGR6dumZ.js:7217",
+          "ms": 9.6
+        },
+        {
+          "fn": "headRowData /assets/index-CGR6dumZ.js:32212",
+          "ms": 8.6
+        },
+        {
+          "fn": "h /assets/index-CGR6dumZ.js:40883",
+          "ms": 7.9
+        },
+        {
+          "fn": "splice /assets/index-CGR6dumZ.js:24814",
+          "ms": 7.5
+        },
+        {
+          "fn": "get nextSibling :0",
+          "ms": 7.5
+        },
+        {
+          "fn": "chunkInside /assets/index-CGR6dumZ.js:27770",
+          "ms": 7.5
+        },
+        {
+          "fn": "flowContinue /assets/index-CGR6dumZ.js:33684",
+          "ms": 7.4
+        },
+        {
+          "fn": "inlines /assets/index-CGR6dumZ.js:39301",
+          "ms": 6.4
+        },
+        {
+          "fn": "insertBefore :0",
+          "ms": 6.4
+        },
+        {
+          "fn": "createElement :0",
+          "ms": 6.4
+        },
+        {
+          "fn": "transformFlow /assets/index-CGR6dumZ.js:38595",
+          "ms": 6.4
+        },
+        {
+          "fn": "start /assets/index-CGR6dumZ.js:34360",
+          "ms": 5.3
+        },
+        {
+          "fn": "suspiciousAttributes /assets/index-CGR6dumZ.js:3036",
+          "ms": 5.3
+        },
+        {
+          "fn": "create /assets/index-CGR6dumZ.js:6949",
+          "ms": 5.3
+        },
+        {
+          "fn": "rescan /assets/index-CGR6dumZ.js:44109",
+          "ms": 4.3
+        },
+        {
+          "fn": "renderSpec /assets/index-CGR6dumZ.js:3056",
+          "ms": 4.3
+        },
+        {
+          "fn": "resolveAllLineSuffixes /assets/index-CGR6dumZ.js:33940",
+          "ms": 4.3
+        },
+        {
+          "fn": "addNode /assets/index-CGR6dumZ.js:7460",
+          "ms": 4.3
+        },
+        {
+          "fn": "collectDefinitions /assets/index-CGR6dumZ.js:39191",
+          "ms": 4.3
+        },
+        {
+          "fn": "documentContinue /assets/index-CGR6dumZ.js:33607",
+          "ms": 4.3
+        },
+        {
+          "fn": "refresh /assets/index-CGR6dumZ.js:48272",
+          "ms": 4.3
+        },
+        {
+          "fn": "resolveAllText /assets/index-CGR6dumZ.js:33909",
+          "ms": 4.3
+        }
+      ],
+      "total": [
+        {
+          "fn": "(root) :0",
+          "ms": 1511
+        },
+        {
+          "fn": "step /assets/index-CGR6dumZ.js:63904",
+          "ms": 796.8
+        },
+        {
+          "fn": "nextBlocks /assets/index-CGR6dumZ.js:39038",
+          "ms": 619.2
+        },
+        {
+          "fn": "fromMarkdown /assets/index-CGR6dumZ.js:34825",
+          "ms": 592.5
+        },
+        {
+          "fn": "parser /assets/index-CGR6dumZ.js:35832",
+          "ms": 592.5
+        },
+        {
+          "fn": "parse /assets/index-CGR6dumZ.js:37787",
+          "ms": 592.5
+        },
+        {
+          "fn": "(program) :0",
+          "ms": 513
+        },
+        {
+          "fn": "subtokenize /assets/index-CGR6dumZ.js:27559",
+          "ms": 281.4
+        },
+        {
+          "fn": "postprocess /assets/index-CGR6dumZ.js:34599",
+          "ms": 253.7
+        },
+        {
+          "fn": "dispatchTransaction /assets/index-CGR6dumZ.js:51171",
+          "ms": 193.5
+        },
+        {
+          "fn": "EditorView.dispatch /assets/index-CGR6dumZ.js:10564",
+          "ms": 193.5
+        },
+        {
+          "fn": "updateStateInner /assets/index-CGR6dumZ.js:10259",
+          "ms": 182.8
+        },
+        {
+          "fn": "updateState /assets/index-CGR6dumZ.js:10256",
+          "ms": 182.8
+        },
+        {
+          "fn": "compile /assets/index-CGR6dumZ.js:34957",
+          "ms": 163
+        },
+        {
+          "fn": "write /assets/index-CGR6dumZ.js:34190",
+          "ms": 159.9
+        },
+        {
+          "fn": "subcontent /assets/index-CGR6dumZ.js:27633",
+          "ms": 136.5
+        },
+        {
+          "fn": "(garbage collector) :0",
+          "ms": 113.3
+        },
+        {
+          "fn": "updateChildren /assets/index-CGR6dumZ.js:7007",
+          "ms": 102
+        },
+        {
+          "fn": "updateInner /assets/index-CGR6dumZ.js:7076",
+          "ms": 94
+        },
+        {
+          "fn": "update /assets/index-CGR6dumZ.js:7071",
+          "ms": 94
+        },
+        {
+          "fn": "updatePluginViews /assets/index-CGR6dumZ.js:10326",
+          "ms": 87.7
+        },
+        {
+          "fn": "iterDeco /assets/index-CGR6dumZ.js:7591",
+          "ms": 85.9
+        },
+        {
+          "fn": "update /assets/index-CGR6dumZ.js:48128",
+          "ms": 85.6
+        },
+        {
+          "fn": "(匿名) /assets/index-CGR6dumZ.js:7019",
+          "ms": 84.8
+        },
+        {
+          "fn": "addNode /assets/index-CGR6dumZ.js:7460",
+          "ms": 83.7
+        },
+        {
+          "fn": "writeToChild /assets/index-CGR6dumZ.js:33709",
+          "ms": 79.9
+        },
+        {
+          "fn": "rebuildHeights /assets/index-CGR6dumZ.js:48216",
+          "ms": 54.4
+        },
+        {
+          "fn": "create /assets/index-CGR6dumZ.js:6949",
+          "ms": 45.3
+        },
+        {
+          "fn": "flowContinue /assets/index-CGR6dumZ.js:33684",
+          "ms": 44.7
+        },
+        {
+          "fn": "loadProgressive /assets/index-CGR6dumZ.js:58043",
+          "ms": 44.7
+        },
+        {
+          "fn": "onsuccessfulconstruct /assets/index-CGR6dumZ.js:34305",
+          "ms": 42.7
+        },
+        {
+          "fn": "thereIsNoNewContainer /assets/index-CGR6dumZ.js:33651",
+          "ms": 42.6
+        },
+        {
+          "fn": "openFile /assets/index-CGR6dumZ.js:63936",
+          "ms": 35.6
+        },
+        {
+          "fn": "setDocument /assets/index-CGR6dumZ.js:63868",
+          "ms": 34.5
+        },
+        {
+          "fn": "contentEnd /assets/index-CGR6dumZ.js:27781",
+          "ms": 34.1
+        },
+        {
+          "fn": "resolveContent /assets/index-CGR6dumZ.js:27732",
+          "ms": 32
+        },
+        {
+          "fn": "documentContinue /assets/index-CGR6dumZ.js:33607",
+          "ms": 28.8
+        },
+        {
+          "fn": "start /assets/index-CGR6dumZ.js:34391",
+          "ms": 27.7
+        },
+        {
+          "fn": "splice /assets/index-CGR6dumZ.js:27430",
+          "ms": 24.5
+        },
+        {
+          "fn": "appendHeights /assets/index-CGR6dumZ.js:48225",
+          "ms": 23.7
+        }
+      ]
+    },
+    "连续输入": {
+      "self": [
+        {
+          "fn": "(program) :0",
+          "ms": 508.6
+        },
+        {
+          "fn": "countWords /assets/index-CGR6dumZ.js:44547",
+          "ms": 18.2
+        },
+        {
+          "fn": "tzFastBlockUpdate /assets/index-CGR6dumZ.js:7505",
+          "ms": 9.9
+        },
+        {
+          "fn": "nodesBetween /assets/index-CGR6dumZ.js:207",
+          "ms": 7.5
+        },
+        {
+          "fn": "(garbage collector) :0",
+          "ms": 4.7
+        },
+        {
+          "fn": "slugify /assets/index-CGR6dumZ.js:13714",
+          "ms": 4.4
+        },
+        {
+          "fn": "getBoundingClientRect :0",
+          "ms": 3.4
+        },
+        {
+          "fn": "get nodeSize /assets/index-CGR6dumZ.js:1136",
+          "ms": 3.2
+        },
+        {
+          "fn": "updateInner /assets/index-CGR6dumZ.js:7076",
+          "ms": 2.8
+        },
+        {
+          "fn": "(匿名) /assets/index-CGR6dumZ.js:13694",
+          "ms": 2.1
+        },
+        {
+          "fn": "replaceChildren :0",
+          "ms": 1.1
+        },
+        {
+          "fn": "child /assets/index-CGR6dumZ.js:340",
+          "ms": 1.1
+        },
+        {
+          "fn": "(匿名) :1",
+          "ms": 1.1
+        },
+        {
+          "fn": "evaluate :364",
+          "ms": 1.1
+        },
+        {
+          "fn": "stat :14",
+          "ms": 1.1
+        },
+        {
+          "fn": "updateWindowState /assets/index-CGR6dumZ.js:64196",
+          "ms": 1.1
+        },
+        {
+          "fn": "changedDescendants /assets/index-CGR6dumZ.js:11545",
+          "ms": 1
+        },
+        {
+          "fn": "findIndex /assets/index-CGR6dumZ.js:383",
+          "ms": 0.5
+        },
+        {
+          "fn": "get childCount /assets/index-CGR6dumZ.js:1142",
+          "ms": 0.4
+        },
+        {
+          "fn": "updateChildren /assets/index-CGR6dumZ.js:7007",
+          "ms": 0.3
+        },
+        {
+          "fn": "renderDescs /assets/index-CGR6dumZ.js:7217",
+          "ms": 0.2
+        },
+        {
+          "fn": "canReplace /assets/index-CGR6dumZ.js:1430",
+          "ms": 0.2
+        },
+        {
+          "fn": "applyTransaction /assets/index-CGR6dumZ.js:14409",
+          "ms": 0.2
+        },
+        {
+          "fn": "from /assets/index-CGR6dumZ.js:445",
+          "ms": 0.1
+        },
+        {
+          "fn": "append /assets/index-CGR6dumZ.js:245",
+          "ms": 0.1
+        },
+        {
+          "fn": "hide /assets/index-CGR6dumZ.js:48043",
+          "ms": 0.1
+        },
+        {
+          "fn": "preMatch /assets/index-CGR6dumZ.js:7555",
+          "ms": 0
+        },
+        {
+          "fn": "validContent /assets/index-CGR6dumZ.js:2114",
+          "ms": 0
+        },
+        {
+          "fn": "findNodeMatch /assets/index-CGR6dumZ.js:7382",
+          "ms": 0
+        },
+        {
+          "fn": "matchFragment /assets/index-CGR6dumZ.js:1600",
+          "ms": 0
+        },
+        {
+          "fn": "updateNextNode /assets/index-CGR6dumZ.js:7419",
+          "ms": 0
+        },
+        {
+          "fn": "matchesNode /assets/index-CGR6dumZ.js:6998",
+          "ms": 0
+        }
+      ],
+      "total": [
+        {
+          "fn": "(root) :0",
+          "ms": 574.2
+        },
+        {
+          "fn": "(program) :0",
+          "ms": 508.6
+        },
+        {
+          "fn": "(匿名) /assets/index-CGR6dumZ.js:64291",
+          "ms": 33.3
+        },
+        {
+          "fn": "(匿名) :1",
+          "ms": 27.6
+        },
+        {
+          "fn": "evaluate :364",
+          "ms": 27.6
+        },
+        {
+          "fn": "renderStatus /assets/index-CGR6dumZ.js:64313",
+          "ms": 23.5
+        },
+        {
+          "fn": "dispatchTransaction /assets/index-CGR6dumZ.js:51171",
+          "ms": 20.1
+        },
+        {
+          "fn": "EditorView.dispatch /assets/index-CGR6dumZ.js:10564",
+          "ms": 20.1
+        },
+        {
+          "fn": "countWords /assets/index-CGR6dumZ.js:44547",
+          "ms": 18.2
+        },
+        {
+          "fn": "updateStateInner /assets/index-CGR6dumZ.js:10259",
+          "ms": 16.5
+        },
+        {
+          "fn": "updateState /assets/index-CGR6dumZ.js:10256",
+          "ms": 16.5
+        },
+        {
+          "fn": "updateChildren /assets/index-CGR6dumZ.js:7007",
+          "ms": 16.5
+        },
+        {
+          "fn": "updateInner /assets/index-CGR6dumZ.js:7076",
+          "ms": 16.5
+        },
+        {
+          "fn": "update /assets/index-CGR6dumZ.js:7071",
+          "ms": 16.5
+        },
+        {
+          "fn": "tzFastBlockUpdate /assets/index-CGR6dumZ.js:7505",
+          "ms": 16
+        },
+        {
+          "fn": "nodesBetween /assets/index-CGR6dumZ.js:207",
+          "ms": 14.1
+        },
+        {
+          "fn": "nodesBetween /assets/index-CGR6dumZ.js:1176",
+          "ms": 9.8
+        },
+        {
+          "fn": "descendants /assets/index-CGR6dumZ.js:1183",
+          "ms": 9.8
+        },
+        {
+          "fn": "collectHeadings /assets/index-CGR6dumZ.js:13691",
+          "ms": 9.8
+        },
+        {
+          "fn": "(匿名) /assets/index-CGR6dumZ.js:13694",
+          "ms": 6.6
+        },
+        {
+          "fn": "(garbage collector) :0",
+          "ms": 4.7
+        },
+        {
+          "fn": "slugify /assets/index-CGR6dumZ.js:13714",
+          "ms": 4.4
+        },
+        {
+          "fn": "textBetween /assets/index-CGR6dumZ.js:1200",
+          "ms": 4.3
+        },
+        {
+          "fn": "getBoundingClientRect :0",
+          "ms": 3.4
+        },
+        {
+          "fn": "get nodeSize /assets/index-CGR6dumZ.js:1136",
+          "ms": 3.2
+        },
+        {
+          "fn": "applyTransaction /assets/index-CGR6dumZ.js:5694",
+          "ms": 2.5
+        },
+        {
+          "fn": "apply /assets/index-CGR6dumZ.js:5674",
+          "ms": 2.5
+        },
+        {
+          "fn": "changedDescendants /assets/index-CGR6dumZ.js:11545",
+          "ms": 2.4
+        },
+        {
+          "fn": "fixTables /assets/index-CGR6dumZ.js:11575",
+          "ms": 2.4
+        },
+        {
+          "fn": "appendTransaction /assets/index-CGR6dumZ.js:12854",
+          "ms": 2.4
+        },
+        {
+          "fn": "replaceChildren :0",
+          "ms": 1.1
+        },
+        {
+          "fn": "child /assets/index-CGR6dumZ.js:340",
+          "ms": 1.1
+        },
+        {
+          "fn": "child /assets/index-CGR6dumZ.js:1149",
+          "ms": 1.1
+        },
+        {
+          "fn": "stat :14",
+          "ms": 1.1
+        },
+        {
+          "fn": "updateWindowState /assets/index-CGR6dumZ.js:64196",
+          "ms": 1.1
+        },
+        {
+          "fn": "onDocChange /assets/index-CGR6dumZ.js:64013",
+          "ms": 1.1
+        },
+        {
+          "fn": "onDocChange /assets/index-CGR6dumZ.js:63853",
+          "ms": 1.1
+        },
+        {
+          "fn": "insertText /assets/index-CGR6dumZ.js:5530",
+          "ms": 0.9
+        },
+        {
+          "fn": "findIndex /assets/index-CGR6dumZ.js:383",
+          "ms": 0.5
+        },
+        {
+          "fn": "resolve /assets/index-CGR6dumZ.js:1013",
+          "ms": 0.5
+        }
+      ]
+    },
+    "切回小文档": {
+      "self": [
+        {
+          "fn": "(program) :0",
+          "ms": 516.5
+        },
+        {
+          "fn": "countWords /assets/index-CGR6dumZ.js:44547",
+          "ms": 34
+        },
+        {
+          "fn": "nodesBetween /assets/index-CGR6dumZ.js:207",
+          "ms": 12.1
+        },
+        {
+          "fn": "removeChild :0",
+          "ms": 5.3
+        },
+        {
+          "fn": "destroy /assets/index-CGR6dumZ.js:6518",
+          "ms": 3.2
+        },
+        {
+          "fn": "slugify /assets/index-CGR6dumZ.js:13714",
+          "ms": 3
+        },
+        {
+          "fn": "(匿名) /assets/index-CGR6dumZ.js:13694",
+          "ms": 2.1
+        },
+        {
+          "fn": "(garbage collector) :0",
+          "ms": 2.1
+        },
+        {
+          "fn": "forEach /assets/index-CGR6dumZ.js:355",
+          "ms": 1.1
+        },
+        {
+          "fn": "(idle) :0",
+          "ms": 1.1
+        },
+        {
+          "fn": "setDocument /assets/index-CGR6dumZ.js:63868",
+          "ms": 1.1
+        },
+        {
+          "fn": "(匿名) :1",
+          "ms": 1.1
+        },
+        {
+          "fn": "track /assets/index-CGR6dumZ.js:23821",
+          "ms": 1.1
+        },
+        {
+          "fn": "create /assets/index-CGR6dumZ.js:2075",
+          "ms": 1.1
+        },
+        {
+          "fn": "(匿名) /assets/index-CGR6dumZ.js:39440",
+          "ms": 1.1
+        },
+        {
+          "fn": "nodesBetween /assets/index-CGR6dumZ.js:1176",
+          "ms": 1.1
+        },
+        {
+          "fn": "createTextNode :0",
+          "ms": 1.1
+        },
+        {
+          "fn": "serializeMarkdown /assets/index-CGR6dumZ.js:39432",
+          "ms": 1.1
+        },
+        {
+          "fn": "destroy /assets/index-CGR6dumZ.js:7206",
+          "ms": 1.1
+        },
+        {
+          "fn": "safeBound /assets/index-CGR6dumZ.js:24042",
+          "ms": 0.8
+        },
+        {
+          "fn": "visitParents /assets/index-CGR6dumZ.js:19365",
+          "ms": 0.1
+        },
+        {
+          "fn": "one /assets/index-CGR6dumZ.js:21448",
+          "ms": 0.1
+        },
+        {
+          "fn": "all /assets/index-CGR6dumZ.js:21469",
+          "ms": 0
+        }
+      ],
+      "total": [
+        {
+          "fn": "(root) :0",
+          "ms": 591.2
+        },
+        {
+          "fn": "(program) :0",
+          "ms": 516.5
+        },
+        {
+          "fn": "renderStatus /assets/index-CGR6dumZ.js:64313",
+          "ms": 43.6
+        },
+        {
+          "fn": "countWords /assets/index-CGR6dumZ.js:44547",
+          "ms": 34
+        },
+        {
+          "fn": "(匿名) /assets/index-CGR6dumZ.js:64291",
+          "ms": 31
+        },
+        {
+          "fn": "save /assets/index-CGR6dumZ.js:64043",
+          "ms": 27.7
+        },
+        {
+          "fn": "nodesBetween /assets/index-CGR6dumZ.js:207",
+          "ms": 17.2
+        },
+        {
+          "fn": "openFile /assets/index-CGR6dumZ.js:63936",
+          "ms": 16
+        },
+        {
+          "fn": "setDocument /assets/index-CGR6dumZ.js:63868",
+          "ms": 10.7
+        },
+        {
+          "fn": "nodesBetween /assets/index-CGR6dumZ.js:1176",
+          "ms": 9.8
+        },
+        {
+          "fn": "descendants /assets/index-CGR6dumZ.js:1183",
+          "ms": 9.8
+        },
+        {
+          "fn": "collectHeadings /assets/index-CGR6dumZ.js:13691",
+          "ms": 9.8
+        },
+        {
+          "fn": "destroy /assets/index-CGR6dumZ.js:10518",
+          "ms": 9.6
+        },
+        {
+          "fn": "replaceView /assets/index-CGR6dumZ.js:63862",
+          "ms": 9.6
+        },
+        {
+          "fn": "textBetween /assets/index-CGR6dumZ.js:1200",
+          "ms": 8.5
+        },
+        {
+          "fn": "serializeMarkdown /assets/index-CGR6dumZ.js:39432",
+          "ms": 5.3
+        },
+        {
+          "fn": "serialize /assets/index-CGR6dumZ.js:58097",
+          "ms": 5.3
+        },
+        {
+          "fn": "save /assets/index-CGR6dumZ.js:58108",
+          "ms": 5.3
+        },
+        {
+          "fn": "confirmLeave /assets/index-CGR6dumZ.js:63987",
+          "ms": 5.3
+        },
+        {
+          "fn": "removeChild :0",
+          "ms": 5.3
+        },
+        {
+          "fn": "(匿名) /assets/index-CGR6dumZ.js:13694",
+          "ms": 5.1
+        },
+        {
+          "fn": "destroy /assets/index-CGR6dumZ.js:6518",
+          "ms": 4.3
+        },
+        {
+          "fn": "(匿名) /assets/index-CGR6dumZ.js:39440",
+          "ms": 3.2
+        },
+        {
+          "fn": "slugify /assets/index-CGR6dumZ.js:13714",
+          "ms": 3
+        },
+        {
+          "fn": "(garbage collector) :0",
+          "ms": 2.1
+        },
+        {
+          "fn": "containerFlow /assets/index-CGR6dumZ.js:23569",
+          "ms": 2.1
+        },
+        {
+          "fn": "containerFlowBound /assets/index-CGR6dumZ.js:24014",
+          "ms": 2.1
+        },
+        {
+          "fn": "root /assets/index-CGR6dumZ.js:22193",
+          "ms": 2.1
+        },
+        {
+          "fn": "one /assets/index-CGR6dumZ.js:20622",
+          "ms": 2.1
+        },
+        {
+          "fn": "toMarkdown /assets/index-CGR6dumZ.js:23886",
+          "ms": 2.1
+        },
+        {
+          "fn": "serializeBlock /assets/index-CGR6dumZ.js:39495",
+          "ms": 2.1
+        },
+        {
+          "fn": "forEach /assets/index-CGR6dumZ.js:355",
+          "ms": 1.1
+        },
+        {
+          "fn": "forEach /assets/index-CGR6dumZ.js:1162",
+          "ms": 1.1
+        },
+        {
+          "fn": "(idle) :0",
+          "ms": 1.1
+        },
+        {
+          "fn": "(匿名) :1",
+          "ms": 1.1
+        },
+        {
+          "fn": "track /assets/index-CGR6dumZ.js:23821",
+          "ms": 1.1
+        },
+        {
+          "fn": "create /assets/index-CGR6dumZ.js:2075",
+          "ms": 1.1
+        },
+        {
+          "fn": "block /assets/index-CGR6dumZ.js:39216",
+          "ms": 1.1
+        },
+        {
+          "fn": "nextBlocks /assets/index-CGR6dumZ.js:39038",
+          "ms": 1.1
+        },
+        {
+          "fn": "loadProgressive /assets/index-CGR6dumZ.js:58043",
+          "ms": 1.1
+        }
+      ]
+    }
+  },
+  "hotSource": {
+    "subtokenize /assets/index-CGR6dumZ.js:27559": {
+      "origin": "node_modules/micromark-util-subtokenize/index.js",
+      "code": "*   Whether subtokens were found.\n*/\nfunction subtokenize(eventsArray) {\n\t/** @type {Record<string, number>} */\n\tconst jumps = {};\n\tlet index = -1;\n\t/** @type {Event} */\n\tlet event;\n\t/** @type {number | undefined} */\n\tlet lineIndex;\n\t/** @type {number} */\n\tlet otherIndex;\n\t/** @type {Event} */\n\tlet otherEvent;\n\t/** @type {Array<Event>} */"
+    },
+    "compile /assets/index-CGR6dumZ.js:34957": {
+      "origin": "node_modules/mdast-util-from-markdown/lib/index.js",
+      "code": "\t*   mdast tree.\n\t*/\n\tfunction compile(events) {\n\t\t/** @type {Root} */\n\t\tlet tree = {\n\t\t\ttype: \"root\",\n\t\t\tchildren: [],\n\t\t\tposition: void 0\n\t\t};\n\t\t/** @type {Omit<CompileContext, 'sliceSerialize'>} */\n\t\tconst context = {\n\t\t\tstack: [tree],\n\t\t\ttokenStack: [],\n\t\t\tconfig,\n\t\t\tenter,"
+    },
+    "subcontent /assets/index-CGR6dumZ.js:27633": {
+      "origin": "node_modules/micromark-util-subtokenize/index.js",
+      "code": "*   Gaps.\n*/\nfunction subcontent(events, eventIndex) {\n\tconst token = events.get(eventIndex)[1];\n\tconst context = events.get(eventIndex)[2];\n\tlet startPosition = eventIndex - 1;\n\t/** @type {Array<number>} */\n\tconst startPositions = [];\n\tlet tokenizer = token._tokenizer;\n\tif (!tokenizer) {\n\t\ttokenizer = context.parser[token.contentType](token.start);\n\t\tif (token._contentTypeTextTrailing) tokenizer._contentTypeTextTrailing = true;\n\t}\n\tconst childEvents = tokenizer.events;\n\t/** @type {Array<[number, number]>} */"
+    },
+    "start /assets/index-CGR6dumZ.js:34391": {
+      "origin": "node_modules/micromark/lib/create-tokenizer.js",
+      "code": "\t\t\t\treturn start;\n\t\t\t\t/** @type {State} */\n\t\t\t\tfunction start(code) {\n\t\t\t\t\tinfo = store();\n\t\t\t\t\tcurrentConstruct = construct;\n\t\t\t\t\tif (!construct.partial) context.currentConstruct = construct;\n\t\t\t\t\tif (construct.name && context.parser.constructs.disable.null.includes(construct.name)) return nok(code);\n\t\t\t\t\treturn construct.tokenize.call(fields ? Object.assign(Object.create(context), fields) : context, effects, ok, nok)(code);\n\t\t\t\t}\n\t\t\t}\n\t\t\t/** @type {State} */\n\t\t\tfunction ok(code) {\n\t\t\t\tonreturn(currentConstruct, info);\n\t\t\t\treturn returnState;\n\t\t\t}"
+    }
+  },
+  "bytes": 1048798,
+  "blocks": 11036
+}
