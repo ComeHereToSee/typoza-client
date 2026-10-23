@@ -286,11 +286,12 @@ export class CodeBlockView implements NodeView {
   }
 
   private catchInputUntilReady(): void {
-    if (this.pendingInput) return
-    const input = h('textarea', { class: 'tz-code-pending', 'aria-hidden': 'true', spellcheck: 'false', autocorrect: 'off', autocapitalize: 'off', tabindex: '-1' })
-    this.dom.append(input)
-    input.focus({ preventScroll: true })
-    this.pendingInput = input
+    if (!this.pendingInput) {
+      this.pendingInput = h('textarea', { class: 'tz-code-pending', 'aria-hidden': 'true', spellcheck: 'false', autocorrect: 'off', autocapitalize: 'off', tabindex: '-1' })
+      this.dom.append(this.pendingInput)
+    }
+    // 每次都重新聚焦:执行命令后 ProseMirror 会把焦点拿回编辑区(view.focus),随后放选区时又走到这里
+    this.pendingInput.focus({ preventScroll: true })
   }
 
   get text(): string {
