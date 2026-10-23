@@ -1,0 +1,19 @@
+{
+  "folder" : "\/var\/folders\/nj\/vtw8zd2j31d1gdrtntc5y4600000gn\/T\/typoza-startup-bgki7lgb\/上次目录",
+  "launchMarks" : {
+    "appReady" : 1.5880000000000001,
+    "bridgeAppInfo" : 1.419,
+    "didFinishLaunching" : 0.184,
+    "didFinishLaunchingEnd" : 0.185,
+    "indexRequested" : 1.2270000000000001,
+    "navigationCommitted" : 1.2450000000000001,
+    "navigationFinished" : 1.339,
+    "navigationStarted" : 1.218,
+    "scriptRequested" : 1.3089999999999999,
+    "webViewCreated" : 0.083000000000000004,
+    "willFinishLaunching" : 0.036999999999999998,
+    "windowInit" : 0.042999999999999997
+  },
+  "path" : null,
+  "readySeconds" : 1.5881579583333405
+}
