@@ -627,7 +627,7 @@ extension AppDelegate {
         var checks = checks
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("typoza-native2-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let exports = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Caches/\(AppPaths.bundleID)/smoke/out")
+        let exports = AppPaths.cachesDir.appendingPathComponent("smoke/out")
         let real = { (path: String) in URL(fileURLWithPath: path).resolvingSymlinksInPath().path }
         let command = { (id: String) in
             let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")

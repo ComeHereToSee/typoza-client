@@ -29,6 +29,7 @@ final class FilesTests: XCTestCase {
         XCTAssertEqual(AppPaths.name, "Typoza")
         XCTAssertEqual(AppPaths.bundleID, "app.typoza.mac")
         XCTAssertEqual(AppPaths.support.lastPathComponent, "Typoza")
+        XCTAssertEqual(AppPaths.cachesDir.lastPathComponent, "Typoza")
         XCTAssertEqual(AppPaths.syncKeychainService, "app.typoza.mac.sync")
 
         let app = dir.appendingPathComponent("Typoza AI.app/Contents", isDirectory: true)
