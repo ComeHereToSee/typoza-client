@@ -744,17 +744,26 @@ extension AppDelegate {
                 guard opened, let w = self.windows.first(where: { $0.isShowing(file) }), let window = w.window else { return fail() }
                 window.makeKeyAndOrderFront(nil)
                 _ = window.makeFirstResponder(w.webView)
-                let place = "(() => { const pm = document.querySelector('.ProseMirror'); const p = pm && [...pm.querySelectorAll('p')].find((e) => e.textContent === '第二段文字内容'); if (!p) return false; pm.focus(); const r = document.createRange(); r.setStart(p.firstChild, 3); r.collapse(true); const s = getSelection(); s.removeAllRanges(); s.addRange(r); return true })()"
-                self.waitForScript(w, place, 15) { placed in
-                    guard placed else { return fail() }
-                    let up = String(Character(UnicodeScalar(UInt32(NSUpArrowFunctionKey))!))
-                    let down = String(Character(UnicodeScalar(UInt32(NSDownArrowFunctionKey))!))
-                    let arrow: NSEvent.ModifierFlags = [.command, .numericPad, .function]
+                // 只聚焦,光标全用真按键移动(程序里直接设 DOM 选区时编辑器未必跟上)
+                let focus = "(() => { const pm = document.querySelector('.ProseMirror'); if (!pm || !pm.querySelector('p')) return false; pm.focus(); return true })()"
+                self.waitForScript(w, focus, 15) { focused in
+                    guard focused else { return fail() }
+                    let key = { (scalar: Int) in String(Character(UnicodeScalar(UInt32(scalar))!)) }
+                    let up = key(NSUpArrowFunctionKey)
+                    let down = key(NSDownArrowFunctionKey)
+                    let right = key(NSRightArrowFunctionKey)
+                    let arrow: NSEvent.ModifierFlags = [.numericPad, .function]
+                    let cmdArrow: NSEvent.ModifierFlags = [.command, .numericPad, .function]
+                    // ⌘↑ 到文首 → ↓ 到第二段段首 → → 三下 → ⌃E 行尾 → ⌃A 行首 → ⌘↓ 文末
                     let presses: [(String, UInt16, String, String, NSEvent.ModifierFlags, String)] = [
-                        ("keyLineStart", 0, "\u{01}", "a", [.control], "第二段文字内容|0"),
+                        ("keyDocStart", 126, up, up, cmdArrow, "键位自检|0"),
+                        ("keyMoveDown", 125, down, down, arrow, "第二段文字内容|0"),
+                        ("keyMoveRight1", 124, right, right, arrow, "第二段文字内容|1"),
+                        ("keyMoveRight2", 124, right, right, arrow, "第二段文字内容|2"),
+                        ("keyMoveRight3", 124, right, right, arrow, "第二段文字内容|3"),
                         ("keyLineEnd", 14, "\u{05}", "e", [.control], "第二段文字内容|7"),
-                        ("keyDocStart", 126, up, up, arrow, "键位自检|0"),
-                        ("keyDocEnd", 125, down, down, arrow, "末段|2"),
+                        ("keyLineStart", 0, "\u{01}", "a", [.control], "第二段文字内容|0"),
+                        ("keyDocEnd", 125, down, down, cmdArrow, "末段|2"),
                     ]
                     var results: [String: Bool] = [:]
                     func pasteCheck() {
